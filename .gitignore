@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+venv/
+env/
+ENV/
+
+# Temporary uploads & outputs
+backend/uploads/
+backend/results/
+backend/dataset_cache_224/
+backend/models/checkpoints/*.pth
+backend/models/checkpoints/*.h5
+backend/test_eval.py
+backend/test_aml_cll_verification.py
+backend/run_full_diagnosis.py
+
+# Node & Frontend build
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/node_modules/.vite/
+.DS_Store

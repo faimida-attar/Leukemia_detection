@@ -1,0 +1,374 @@
+{
+    "status": "evaluated",
+    "model_architecture": "ResNet50 + DenseNet121 Hybrid Classifier",
+    "evaluation_averaging_method": "macro",
+    "total_test_samples": 750,
+    "overall": {
+        "accuracy": 84.67,
+        "precision": 85.72,
+        "recall": 84.67,
+        "f1_score": 84.85,
+        "sensitivity": 84.67,
+        "specificity": 96.17,
+        "auc_roc": 0.973
+    },
+    "per_class": {
+        "ALL": {
+            "precision": 66.67,
+            "recall": 84.0,
+            "f1_score": 74.34,
+            "sensitivity": 84.0,
+            "specificity": 89.5,
+            "auc": 0.931,
+            "sample_count": 150
+        },
+        "AML": {
+            "precision": 83.46,
+            "recall": 74.0,
+            "f1_score": 78.45,
+            "sensitivity": 74.0,
+            "specificity": 96.33,
+            "auc": 0.967,
+            "sample_count": 150
+        },
+        "CLL": {
+            "precision": 90.0,
+            "recall": 78.0,
+            "f1_score": 83.57,
+            "sensitivity": 78.0,
+            "specificity": 97.83,
+            "auc": 0.976,
+            "sample_count": 150
+        },
+        "CML": {
+            "precision": 90.48,
+            "recall": 88.67,
+            "f1_score": 89.56,
+            "sensitivity": 88.67,
+            "specificity": 97.67,
+            "auc": 0.99,
+            "sample_count": 150
+        },
+        "Normal": {
+            "precision": 98.01,
+            "recall": 98.67,
+            "f1_score": 98.34,
+            "sensitivity": 98.67,
+            "specificity": 99.5,
+            "auc": 0.999,
+            "sample_count": 150
+        }
+    },
+    "confusion_matrix": {
+        "labels": [
+            "ALL",
+            "AML",
+            "CLL",
+            "CML",
+            "Normal"
+        ],
+        "matrix": [
+            [
+                126,
+                14,
+                7,
+                3,
+                0
+            ],
+            [
+                25,
+                111,
+                6,
+                7,
+                1
+            ],
+            [
+                22,
+                5,
+                117,
+                4,
+                2
+            ],
+            [
+                16,
+                1,
+                0,
+                133,
+                0
+            ],
+            [
+                0,
+                2,
+                0,
+                0,
+                148
+            ]
+        ]
+    },
+    "confusion_matrices": {
+        "resnet50": {
+            "labels": [
+                "ALL",
+                "AML",
+                "CLL",
+                "CML",
+                "Normal"
+            ],
+            "matrix": [
+                [
+                    0,
+                    0,
+                    0,
+                    150,
+                    0
+                ],
+                [
+                    1,
+                    0,
+                    0,
+                    149,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    150,
+                    0
+                ],
+                [
+                    23,
+                    9,
+                    0,
+                    118,
+                    0
+                ],
+                [
+                    30,
+                    3,
+                    0,
+                    112,
+                    5
+                ]
+            ]
+        },
+        "densenet121": {
+            "labels": [
+                "ALL",
+                "AML",
+                "CLL",
+                "CML",
+                "Normal"
+            ],
+            "matrix": [
+                [
+                    0,
+                    0,
+                    0,
+                    0,
+                    150
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    1,
+                    149
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    1,
+                    149
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    1,
+                    149
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    4,
+                    146
+                ]
+            ]
+        },
+        "hybrid_resnet50_densenet121": {
+            "labels": [
+                "ALL",
+                "AML",
+                "CLL",
+                "CML",
+                "Normal"
+            ],
+            "matrix": [
+                [
+                    126,
+                    14,
+                    7,
+                    3,
+                    0
+                ],
+                [
+                    25,
+                    111,
+                    6,
+                    7,
+                    1
+                ],
+                [
+                    22,
+                    5,
+                    117,
+                    4,
+                    2
+                ],
+                [
+                    16,
+                    1,
+                    0,
+                    133,
+                    0
+                ],
+                [
+                    0,
+                    2,
+                    0,
+                    0,
+                    148
+                ]
+            ]
+        }
+    },
+    "model_comparison": [
+        {
+            "model": "ResNet50",
+            "accuracy": 16.4,
+            "precision": 23.48,
+            "recall": 16.4,
+            "f1": 6.98,
+            "sensitivity": 16.4,
+            "specificity": 79.1,
+            "auc": 0.481
+        },
+        {
+            "model": "DenseNet121",
+            "accuracy": 19.6,
+            "precision": 6.79,
+            "recall": 19.6,
+            "f1": 6.79,
+            "sensitivity": 19.6,
+            "specificity": 79.9,
+            "auc": 0.513
+        },
+        {
+            "model": "Hybrid ResNet50 + DenseNet121",
+            "accuracy": 84.67,
+            "precision": 85.72,
+            "recall": 84.67,
+            "f1": 84.85,
+            "sensitivity": 84.67,
+            "specificity": 96.17,
+            "auc": 0.973,
+            "isBest": true
+        }
+    ],
+    "experiments": [
+        {
+            "id": "Exp1",
+            "pipeline": "Original Slide \u2192 ResNet50",
+            "desc": "Uncompressed baseline",
+            "psnr": "N/A",
+            "ssim": "1.000",
+            "accuracy": 19.73,
+            "precision": 28.36,
+            "recall": 19.73,
+            "f1": 10.85,
+            "auc": 0.532
+        },
+        {
+            "id": "Exp2",
+            "pipeline": "Compressed (50%) \u2192 ResNet50",
+            "desc": "Direct classification without reconstruction",
+            "psnr": "35.32 dB",
+            "ssim": "0.931",
+            "accuracy": 21.47,
+            "precision": 30.52,
+            "recall": 21.47,
+            "f1": 12.13,
+            "auc": 0.522
+        },
+        {
+            "id": "Exp3",
+            "pipeline": "Compressed \u2192 Basic GAN \u2192 ResNet50",
+            "desc": "Standard adversarial reconstruction",
+            "psnr": "34.85 dB",
+            "ssim": "0.932",
+            "accuracy": 20.93,
+            "precision": 23.92,
+            "recall": 20.93,
+            "f1": 10.55,
+            "auc": 0.492
+        },
+        {
+            "id": "Exp4",
+            "pipeline": "Compressed \u2192 GAN + CBAM \u2192 ResNet50",
+            "desc": "Attention-guided reconstruction + ResNet50",
+            "psnr": "23.78 dB",
+            "ssim": "0.809",
+            "accuracy": 16.4,
+            "precision": 23.48,
+            "recall": 16.4,
+            "f1": 6.98,
+            "auc": 0.481
+        },
+        {
+            "id": "Exp5",
+            "pipeline": "Compressed \u2192 GAN + CBAM \u2192 ResNet50 + DenseNet121 Hybrid",
+            "desc": "Attention-guided reconstruction + Feature Fusion Classifier (Proposed)",
+            "psnr": "23.78 dB",
+            "ssim": "0.809",
+            "accuracy": 84.67,
+            "precision": 85.72,
+            "recall": 84.67,
+            "f1": 84.85,
+            "auc": 0.973,
+            "isBest": true
+        }
+    ],
+    "comparison_with_resnet50": {
+        "existing_resnet50": {
+            "accuracy": 16.4,
+            "precision": 23.48,
+            "recall": 16.4,
+            "f1_score": 6.98,
+            "sensitivity": 16.4,
+            "specificity": 79.1,
+            "auc_roc": 0.481
+        },
+        "densenet121": {
+            "accuracy": 19.6,
+            "precision": 6.79,
+            "recall": 19.6,
+            "f1_score": 6.79,
+            "sensitivity": 19.6,
+            "specificity": 79.9,
+            "auc_roc": 0.513
+        },
+        "hybrid_resnet50_densenet121": {
+            "accuracy": 84.67,
+            "precision": 85.72,
+            "recall": 84.67,
+            "f1_score": 84.85,
+            "sensitivity": 84.67,
+            "specificity": 96.17,
+            "auc_roc": 0.973
+        },
+        "accuracy_difference": 68.27
+    }
+}
