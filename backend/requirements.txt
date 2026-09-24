@@ -12,3 +12,5 @@ matplotlib==3.10.6
 seaborn==0.13.2
 reportlab==4.4.5
 gunicorn==21.2.0
+python-dotenv==1.0.1
+pymongo==4.7.0
