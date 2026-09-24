@@ -12,6 +12,7 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from dotenv import load_dotenv
 import pymongo
+import threading
 
 # Load environment variables from .env
 load_dotenv()
@@ -19,6 +20,9 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64MB max payload size
+
+# Thread lock to prevent race conditions during global model prediction and GradCAM hook assignment
+pipeline_lock = threading.Lock()
 
 
 BASE_DIR = os.path.dirname(__file__)
@@ -389,53 +393,57 @@ def analyze_full_pipeline():
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
 
         # Step 5: Leukemia Classification across models (ResNet50, DenseNet121, and Hybrid Feature Fusion)
-        with torch.no_grad():
-            resnet_res = resnet_classifier.predict(pil_img, filename=filename)
-            densenet_res = densenet_classifier.predict(pil_img, filename=filename)
-            hybrid_res = hybrid_classifier.predict(pil_img, filename=filename)
-
-        pred_res = hybrid_res
-
-        # Step 6: Grad-CAM Explainability (Generated for ALL, AML, CLL, CML; skipped for Normal stage)
-        # Step 6: Grad-CAM Explainability (Generated for leukemia classes ALL, AML, CLL, CML; skipped for Normal)
-        gradcam_b64 = None
-        gradcam_path = None
-
-        pred_class_name = pred_res.get("prediction", "ALL")
-        is_normal_stage = (pred_class_name == "Normal")
-        print(f"[GradCAM Check] filename={filename}, predicted_class={pred_class_name}, is_normal={is_normal_stage}", flush=True)
-
-        if not is_normal_stage:
-            gradcam_path = os.path.join(RESULTS_DIR, f"{session_id}_gradcam.png")
-            try:
-                target_layer = hybrid_classifier.model.get_gradcam_target_layer()
-                grad_cam_eval = GradCAM(hybrid_classifier.model, target_layer)
-                
-                class_to_idx = {c: i for i, c in enumerate(hybrid_classifier.model.CLASSES)}
-                target_class_idx = class_to_idx.get(pred_class_name, 0)
-
-                transform_resnet = transforms.Compose([
-                    transforms.Resize((224, 224)),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                ])
-                input_tensor = transform_resnet(recon_pil).unsqueeze(0)
-                heatmap, target_idx = grad_cam_eval.generate_heatmap(input_tensor, target_class_idx=target_class_idx)
-
-                cv2_recon = cv2.cvtColor(np.array(recon_pil), cv2.COLOR_RGB2BGR)
-                blended, colormap = grad_cam_eval.overlay_heatmap(heatmap, cv2_recon)
-                cv2.imwrite(gradcam_path, blended)
-                gradcam_b64 = cv2_to_base64(blended)
-                print(f"[GradCAM Success] Heatmap generated for target class '{pred_class_name}' (Index: {target_idx}), saved to {gradcam_path}", flush=True)
-            except Exception as cam_err:
-                print(f"[GradCAM Exception] {cam_err}", flush=True)
-                recon_512 = recon_pil.resize((512, 512))
-                cv2_recon = cv2.cvtColor(np.array(recon_512), cv2.COLOR_RGB2BGR)
-                gray = cv2.cvtColor(cv2_recon, cv2.COLOR_BGR2GRAY)
-                heatmap_fallback = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
-                blended_fallback = cv2.addWeighted(cv2_recon, 0.6, heatmap_fallback, 0.4, 0)
-                cv2.imwrite(gradcam_path, blended_fallback)
-                gradcam_b64 = cv2_to_base64(blended_fallback)
+        with pipeline_lock:
+            with torch.no_grad():
+                resnet_res = resnet_classifier.predict(pil_img, filename=filename)
+                densenet_res = densenet_classifier.predict(pil_img, filename=filename)
+                hybrid_res = hybrid_classifier.predict(pil_img, filename=filename)
+    
+            pred_res = hybrid_res
+    
+            # Step 6: Grad-CAM Explainability (Generated for leukemia classes ALL, AML, CLL, CML; skipped for Normal)
+            gradcam_b64 = None
+            gradcam_path = None
+    
+            pred_class_name = pred_res.get("prediction", "ALL")
+            is_normal_stage = (pred_class_name == "Normal")
+            print(f"[GradCAM Check] filename={filename}, predicted_class={pred_class_name}, is_normal={is_normal_stage}", flush=True)
+    
+            if not is_normal_stage:
+                gradcam_path = os.path.join(RESULTS_DIR, f"{session_id}_gradcam.png")
+                grad_cam_eval = None
+                try:
+                    target_layer = hybrid_classifier.model.get_gradcam_target_layer()
+                    grad_cam_eval = GradCAM(hybrid_classifier.model, target_layer)
+                    
+                    class_to_idx = {c: i for i, c in enumerate(hybrid_classifier.model.CLASSES)}
+                    target_class_idx = class_to_idx.get(pred_class_name, 0)
+    
+                    transform_resnet = transforms.Compose([
+                        transforms.Resize((224, 224)),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                    ])
+                    input_tensor = transform_resnet(recon_pil).unsqueeze(0)
+                    heatmap, target_idx = grad_cam_eval.generate_heatmap(input_tensor, target_class_idx=target_class_idx)
+    
+                    cv2_recon = cv2.cvtColor(np.array(recon_pil), cv2.COLOR_RGB2BGR)
+                    blended, colormap = grad_cam_eval.overlay_heatmap(heatmap, cv2_recon)
+                    cv2.imwrite(gradcam_path, blended)
+                    gradcam_b64 = cv2_to_base64(blended)
+                    print(f"[GradCAM Success] Heatmap generated for target class '{pred_class_name}' (Index: {target_idx}), saved to {gradcam_path}", flush=True)
+                except Exception as cam_err:
+                    print(f"[GradCAM Exception] {cam_err}", flush=True)
+                    recon_512 = recon_pil.resize((512, 512))
+                    cv2_recon = cv2.cvtColor(np.array(recon_512), cv2.COLOR_RGB2BGR)
+                    gray = cv2.cvtColor(cv2_recon, cv2.COLOR_BGR2GRAY)
+                    heatmap_fallback = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+                    blended_fallback = cv2.addWeighted(cv2_recon, 0.6, heatmap_fallback, 0.4, 0)
+                    cv2.imwrite(gradcam_path, blended_fallback)
+                    gradcam_b64 = cv2_to_base64(blended_fallback)
+                finally:
+                    if grad_cam_eval is not None:
+                        grad_cam_eval.remove_hooks()
 
         # Assemble comprehensive response payload
         response_payload = {

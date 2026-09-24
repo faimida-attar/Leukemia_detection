@@ -17,8 +17,14 @@ class GradCAM:
         self.activations = None
 
         # Register forward and backward hooks
-        self.target_layer.register_forward_hook(self.save_activations)
-        self.target_layer.register_full_backward_hook(self.save_gradients)
+        self.forward_handle = self.target_layer.register_forward_hook(self.save_activations)
+        self.backward_handle = self.target_layer.register_full_backward_hook(self.save_gradients)
+
+    def remove_hooks(self):
+        if hasattr(self, 'forward_handle') and self.forward_handle:
+            self.forward_handle.remove()
+        if hasattr(self, 'backward_handle') and self.backward_handle:
+            self.backward_handle.remove()
 
     def save_activations(self, module, input, output):
         self.activations = output.detach()

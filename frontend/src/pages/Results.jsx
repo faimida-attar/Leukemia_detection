@@ -3,7 +3,7 @@ import {
   FileText, Download, ShieldCheck, CheckCircle2, Sliders,
   Layers, BarChart3, Activity, Eye, Printer, Sparkles, ArrowRight, Info,
   Maximize2, X, SlidersHorizontal, RefreshCw, ZoomIn, Image as ImageIcon, ExternalLink,
-  ChevronLeft, ChevronRight, Table, Loader2
+  ChevronLeft, ChevronRight, Table, Loader2, Upload, XCircle
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 

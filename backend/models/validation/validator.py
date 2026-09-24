@@ -132,7 +132,13 @@ class ImageValidator:
 
             # Rule combination: Deep Learning score + Stain Feature rule checking
             # Non-microscopy images (text, landscapes, natural photos) usually have zero or negligible purple stain ratio
-            has_microscopy_stain = (purple_ratio > 0.005 or pink_ratio > 0.08 or (stain_score > 0.25 and bright_bg > 0.25))
+            # Genuine blood smears have softer textures (lap_var typically < 800) and substantial stain.
+            is_microscopy_texture = lap_var < 1000
+            
+            has_microscopy_stain = (
+                (purple_ratio > 0.015 or pink_ratio > 0.05)
+                and is_microscopy_texture
+            )
 
             if self.model_loaded:
                 is_valid = (valid_prob > 0.5) and has_microscopy_stain

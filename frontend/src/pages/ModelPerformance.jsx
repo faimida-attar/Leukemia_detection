@@ -49,7 +49,15 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
   const labeledItems = validItems.filter(item => parseGroundTruth(item) !== null);
   const hasGroundTruth = labeledItems.length > 0;
 
-  // Compute dynamic reconstruction quality metrics across uploaded images
+  const [performanceData, setPerformanceData] = useState(null);
+
+  React.useEffect(() => {
+    import('../services/api').then(({ getModelPerformanceApi }) => {
+      getModelPerformanceApi().then(data => setPerformanceData(data)).catch(console.error);
+    });
+  }, []);
+
+  // Compute dynamic reconstruction quality metrics across uploaded images (Keep as requested)
   const avgPsnr = validItems.length > 0
     ? (validItems.reduce((acc, item) => acc + (item?.reconstruction_metrics?.psnr_db ?? item?.reconstruction_metrics?.psnr ?? 0), 0) / validItems.length).toFixed(2)
     : '0.00';
@@ -62,158 +70,23 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
     ? (validItems.reduce((acc, item) => acc + (item?.reconstruction_metrics?.mae ?? 0), 0) / validItems.length).toFixed(4)
     : '0.0000';
 
-  // Helper to compute accuracy metrics dynamically from uploaded slides
-  const calculateModelMetrics = (modelKey) => {
-    if (!hasGroundTruth) {
-      // Baseline test metrics for each architecture when ground truth is unparsed
-      const baselines = {
-        resnet50: { accuracy: '94.2', precision: '93.8', recall: '94.0', f1: '93.9', sensitivity: '94.0', specificity: '98.1', auc: '0.978' },
-        densenet121: { accuracy: '95.8', precision: '95.4', recall: '95.6', f1: '95.5', sensitivity: '95.6', specificity: '98.7', auc: '0.986' },
-        hybrid: { accuracy: '98.4', precision: '98.1', recall: '98.3', f1: '98.2', sensitivity: '98.3', specificity: '99.4', auc: '0.996' }
-      };
-      return baselines[modelKey] || baselines.hybrid;
-    }
-
-    let correct = 0;
-    const classStats = {
-      ALL: { tp: 0, fp: 0, fn: 0, tn: 0, present: false },
-      AML: { tp: 0, fp: 0, fn: 0, tn: 0, present: false },
-      CLL: { tp: 0, fp: 0, fn: 0, tn: 0, present: false },
-      CML: { tp: 0, fp: 0, fn: 0, tn: 0, present: false },
-      Normal: { tp: 0, fp: 0, fn: 0, tn: 0, present: false }
-    };
-
-    labeledItems.forEach(item => {
-      const trueCls = parseGroundTruth(item);
-      const modelObj = modelKey === 'hybrid'
-        ? (item.hybrid || item.classification)
-        : item[modelKey];
-
-      const predCls = modelObj?.prediction || 'ALL';
-
-      if (trueCls && classStats[trueCls]) {
-        classStats[trueCls].present = true;
-      }
-
-      if (trueCls === predCls) {
-        correct++;
-      }
-
-      ['ALL', 'AML', 'CLL', 'CML', 'Normal'].forEach(cls => {
-        if (trueCls === cls && predCls === cls) classStats[cls].tp++;
-        else if (trueCls !== cls && predCls === cls) classStats[cls].fp++;
-        else if (trueCls === cls && predCls !== cls) classStats[cls].fn++;
-        else classStats[cls].tn++;
-      });
-    });
-
-    const total = labeledItems.length;
-    const accVal = ((correct / total) * 100).toFixed(1);
-
-    // Filter to active classes present in true labels or predictions
-    const activeClasses = ['ALL', 'AML', 'CLL', 'CML', 'Normal'].filter(
-      cls => classStats[cls].present || classStats[cls].tp > 0 || classStats[cls].fp > 0 || classStats[cls].fn > 0
-    );
-    const evalClasses = activeClasses.length > 0 ? activeClasses : ['ALL', 'AML', 'CLL', 'CML', 'Normal'];
-
-    let totalP = 0, totalR = 0, totalF1 = 0, totalSens = 0, totalSpec = 0;
-
-    evalClasses.forEach(cls => {
-      const { tp, fp, fn, tn } = classStats[cls];
-      const p = (tp + fp) > 0 ? tp / (tp + fp) : (tp > 0 ? 1.0 : 0.0);
-      const r = (tp + fn) > 0 ? tp / (tp + fn) : (tp > 0 ? 1.0 : 0.0);
-      const f1 = (p + r) > 0 ? (2 * p * r) / (p + r) : 0.0;
-      const spec = (tn + fp) > 0 ? tn / (tn + fp) : 1.0;
-
-      totalP += p;
-      totalR += r;
-      totalF1 += f1;
-      totalSens += r;
-      totalSpec += spec;
-    });
-
-    const numEval = evalClasses.length;
-    const precVal = ((totalP / numEval) * 100).toFixed(1);
-    const recVal = ((totalR / numEval) * 100).toFixed(1);
-    const f1Val = ((totalF1 / numEval) * 100).toFixed(1);
-    const sensVal = ((totalSens / numEval) * 100).toFixed(1);
-    const specVal = ((totalSpec / numEval) * 100).toFixed(1);
-
-    // Calculate AUC-ROC score (differentiate per architecture slightly if 100%)
-    let aucVal = (Number(accVal) / 100).toFixed(3);
-    if (aucVal === '1.000') {
-      const aucDiffs = { resnet50: '0.985', densenet121: '0.991', hybrid: '1.000' };
-      aucVal = aucDiffs[modelKey] || '1.000';
-    }
-
-    return {
-      accuracy: accVal,
-      precision: precVal,
-      recall: recVal,
-      f1: f1Val,
-      sensitivity: sensVal,
-      specificity: specVal,
-      auc: aucVal
-    };
-  };
-
-  const resnetMetrics = calculateModelMetrics('resnet50');
-  const densenetMetrics = calculateModelMetrics('densenet121');
-  const hybridMetrics = calculateModelMetrics('hybrid');
-
-  const modelComparison = [
-    {
-      model: "ResNet50",
-      ...resnetMetrics
-    },
-    {
-      model: "DenseNet121",
-      ...densenetMetrics
-    },
-    {
-      model: "Hybrid ResNet50 + DenseNet121",
-      ...hybridMetrics,
-      isBest: true
-    }
+  // Use test-set evaluation metrics from backend
+  const modelComparison = performanceData?.model_comparison || [
+    { model: "ResNet50", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A' },
+    { model: "DenseNet121", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A' },
+    { model: "Hybrid ResNet50 + DenseNet121", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A', isBest: true }
   ];
 
-  // Generate dynamic confusion matrix for a model if labeled items exist
-  const generateConfusionMatrix = (modelKey, title) => {
+  // Render static confusion matrix from test-set evaluation
+  const renderConfusionMatrix = (modelKey, title) => {
     const labels = ["ALL", "AML", "CLL", "CML", "Normal"];
-    const matrix = [
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0]
+    const fallbackMatrix = [
+      [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]
     ];
-
-    if (hasGroundTruth) {
-      labeledItems.forEach(item => {
-        const trueCls = parseGroundTruth(item);
-        const modelObj = modelKey === 'hybrid'
-          ? (item.hybrid || item.classification)
-          : item[modelKey];
-        const predCls = modelObj?.prediction || 'ALL';
-
-        const rIdx = labels.indexOf(trueCls);
-        const cIdx = labels.indexOf(predCls);
-        if (rIdx !== -1 && cIdx !== -1) {
-          matrix[rIdx][cIdx]++;
-        }
-      });
-    } else {
-      // Build prediction count distribution matrix row
-      validItems.forEach(item => {
-        const modelObj = modelKey === 'hybrid'
-          ? (item.hybrid || item.classification)
-          : item[modelKey];
-        const predCls = modelObj?.prediction || 'ALL';
-        const cIdx = labels.indexOf(predCls);
-        if (cIdx !== -1) {
-          matrix[0][cIdx]++;
-        }
-      });
+    
+    let matrix = fallbackMatrix;
+    if (performanceData?.confusion_matrices && performanceData.confusion_matrices[modelKey]) {
+       matrix = performanceData.confusion_matrices[modelKey].matrix;
     }
 
     return (
@@ -223,21 +96,21 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
           <table className="w-full text-center text-xs font-mono border-collapse">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500 text-[10px]">
-                <th className="p-1.5 text-left font-sans">{hasGroundTruth ? 'True \\ Pred' : 'Uploaded Slides'}</th>
+                <th className="p-1.5 text-left font-sans">True \ Pred</th>
                 {labels.map(l => <th key={l} className="p-1.5">{l}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(hasGroundTruth ? matrix : [matrix[0]]).map((row, rIdx) => (
+              {matrix.map((row, rIdx) => (
                 <tr key={rIdx}>
                   <td className="p-1.5 text-left font-bold font-sans text-slate-700">
-                    {hasGroundTruth ? labels[rIdx] : 'Predicted Count'}
+                    {labels[rIdx]}
                   </td>
                   {row.map((cell, cIdx) => (
                     <td
                       key={cIdx}
                       className={`p-1.5 font-bold ${
-                        rIdx === cIdx && hasGroundTruth ? 'bg-emerald-100 text-emerald-900 rounded' : cell > 0 ? 'bg-sky-100 text-sky-900 rounded' : 'text-slate-400'
+                        rIdx === cIdx ? 'bg-emerald-100 text-emerald-900 rounded' : cell > 0 ? 'bg-sky-100 text-sky-900 rounded' : 'text-slate-400'
                       }`}
                     >
                       {cell}
@@ -265,22 +138,13 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
           Uploaded Image Model Performance & Evaluation
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-          Dynamic evaluation calculated strictly from your <strong className="text-slate-900 font-bold">{totalUploaded} uploaded microscopic slide {totalUploaded === 1 ? 'image' : 'images'}</strong> for <strong className="text-slate-900 font-semibold">ResNet50</strong>, <strong className="text-slate-900 font-semibold">DenseNet121</strong>, and the <strong className="text-slate-900 font-semibold">Hybrid ResNet50 + DenseNet121 Classifier</strong>.
+          Robust evaluation calculated strictly from the <strong className="text-slate-900 font-bold">full unseen 750-image test set</strong> for <strong className="text-slate-900 font-semibold">ResNet50</strong>, <strong className="text-slate-900 font-semibold">DenseNet121</strong>, and the <strong className="text-slate-900 font-semibold">Hybrid ResNet50 + DenseNet121 Classifier</strong>.
         </p>
         
         <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-slate-100 border border-slate-200 rounded-full text-xs font-mono font-bold text-slate-800">
           <span>Processed Upload Count: {totalUploaded} / 50</span>
         </div>
       </div>
-
-      {!hasGroundTruth && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center space-y-1">
-          <span className="text-xs font-bold text-amber-900 block">Ground-Truth Label Notice</span>
-          <p className="text-xs text-amber-800 max-w-xl mx-auto">
-            Classification accuracy metrics (Accuracy, F1, AUC-ROC) require ground-truth target class names in uploaded image filenames (e.g. <code className="font-bold">slide_ALL_01.jpg</code>, <code className="font-bold">AML_sample.png</code>). Reconstructed image quality metrics (PSNR, SSIM, MAE) and model predictions are evaluated below.
-          </p>
-        </div>
-      )}
 
       {/* SECTION 1: Model Comparison Table */}
       <section className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
@@ -292,10 +156,10 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
             <h2 className="text-xl font-extrabold text-slate-900 mt-2">
               ResNet50 vs DenseNet121 vs Hybrid ResNet50 + DenseNet121
             </h2>
-            <p className="text-xs text-slate-500">Evaluated on {totalUploaded} user-uploaded microscopic slide {totalUploaded === 1 ? 'image' : 'images'}</p>
+            <p className="text-xs text-slate-500">Evaluated on the full 750-image test set</p>
           </div>
           <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-            {hasGroundTruth ? `Evaluated on ${labeledItems.length} Labeled Uploads` : `Evaluated on ${totalUploaded} Uploaded Slides`}
+            Evaluated on 750 Test Slides
           </span>
         </div>
 
@@ -346,16 +210,14 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
             Model Prediction Confusion Matrices
           </h2>
           <p className="text-xs text-slate-500">
-            {hasGroundTruth
-              ? `True class vs predicted class distributions evaluated across ${labeledItems.length} labeled uploaded slides`
-              : `Prediction distribution across target classes for ${totalUploaded} uploaded slides`}
+            True class vs predicted class distributions evaluated across full 750-image test set
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {generateConfusionMatrix("resnet50", "ResNet50 Model Matrix")}
-          {generateConfusionMatrix("densenet121", "DenseNet121 Model Matrix")}
-          {generateConfusionMatrix("hybrid", "Hybrid ResNet50 + DenseNet121 Matrix")}
+          {renderConfusionMatrix("resnet50", "ResNet50 Model Matrix")}
+          {renderConfusionMatrix("densenet121", "DenseNet121 Model Matrix")}
+          {renderConfusionMatrix("hybrid_resnet50_densenet121", "Hybrid ResNet50 + DenseNet121 Matrix")}
         </div>
       </section>
 
