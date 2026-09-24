@@ -3,25 +3,25 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environment
+# Environment — NEVER commit real secrets
 .env
+!.env.example
 venv/
 env/
 ENV/
 
-# Temporary uploads & outputs
+# Temporary uploads & outputs (runtime generated, not needed in repo)
 backend/uploads/
 backend/results/
 backend/dataset_cache_224/
-backend/models/checkpoints/*.pth
-backend/models/checkpoints/*.h5
-backend/test_eval.py
-backend/test_aml_cll_verification.py
-backend/run_full_diagnosis.py
 
-# Node & Frontend build
+# Node & Frontend
 node_modules/
 frontend/node_modules/
-frontend/dist/
 frontend/node_modules/.vite/
 .DS_Store
+
+# NOTE: backend/models/checkpoints/*.pth and *.h5 are NOT ignored here
+# They are tracked with Git LFS (see .gitattributes) and must be pushed to HF Spaces
+# NOTE: frontend/dist/ is also NOT ignored — it is built locally and
+# copied to backend/static/ before pushing to Hugging Face

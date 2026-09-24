@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 import pymongo
@@ -17,7 +17,7 @@ import threading
 # Load environment variables from .env
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64MB max payload size
 
@@ -615,9 +615,26 @@ def generate_report_endpoint():
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF report: {str(e)}"}), 500
 
+# -------------------------------------------------------------------
+# Catch-all route — serves the built React frontend for all non-API routes
+# This enables single-process deployment on Hugging Face Spaces
+# -------------------------------------------------------------------
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    """Serve the built React static files. Falls back to index.html for SPA routing."""
+    static_dir = app.static_folder
+    if static_dir and path != '' and os.path.exists(os.path.join(static_dir, path)):
+        return send_from_directory(static_dir, path)
+    elif static_dir and os.path.exists(os.path.join(static_dir, 'index.html')):
+        return send_from_directory(static_dir, 'index.html')
+    else:
+        return jsonify({"status": "running", "message": "Flask API is running. Static frontend not found."}), 200
+
 if __name__ == '__main__':
+    port = int(os.getenv('PORT', 7860))
     print("=======================================================")
     print("    LEUKEMIA DETECTION & RECONSTRUCTION FLASK API     ")
-    print("    Running on http://localhost:5000                   ")
+    print(f"    Running on http://0.0.0.0:{port}                  ")
     print("=======================================================")
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

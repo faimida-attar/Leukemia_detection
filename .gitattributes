@@ -1,0 +1,9 @@
+# Git LFS — Large File Storage tracking
+# Required for model checkpoints > 100MB on Hugging Face Spaces
+# Files tracked here are stored in LFS, not in regular git history
+*.pth filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text
