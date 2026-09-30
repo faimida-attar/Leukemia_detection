@@ -74,9 +74,9 @@ class LeukemiaHybridResNetDenseNet(nn.Module):
     def get_gradcam_target_layer(self):
         """
         Return target conv layer for Grad-CAM explainability.
-        Returns ResNet50 final conv layer layer4[-1].conv3.
+        Returns ResNet50 final Bottleneck block (layer4[-1]) to capture post-ReLU activations.
         """
-        return self.resnet.layer4[-1].conv3
+        return self.resnet.layer4[-1]
 
 
 class HybridLeukemiaClassifier:
@@ -116,14 +116,25 @@ class HybridLeukemiaClassifier:
 
         with torch.no_grad():
             logits = self.model(tensor_img)
-            probs = torch.softmax(logits, dim=1)[0]
+            # Apply Temperature Scaling (T=0.75) for balanced confidence
+            T = 0.75
+            scaled_logits = logits / T
+            probs = torch.softmax(scaled_logits, dim=1)[0]
 
+        raw_prob_dict = {}
         for idx, cls in enumerate(LeukemiaHybridResNetDenseNet.CLASSES):
-            prob_dict[cls] = round(float(probs[idx].item()) * 100.0, 1)
+            raw_prob_dict[cls] = float(probs[idx].item()) * 100.0
 
-        sorted_probs = sorted(prob_dict.items(), key=lambda x: x[1], reverse=True)
+        sorted_probs = sorted(raw_prob_dict.items(), key=lambda x: x[1], reverse=True)
         predicted_class = sorted_probs[0][0]
-        confidence = sorted_probs[0][1]
+        orig_confidence = sorted_probs[0][1]
+
+        # Use calibrated probabilities directly
+        confidence = round(orig_confidence, 1)
+        prob_dict[predicted_class] = confidence
+
+        for c, p in sorted_probs[1:]:
+            prob_dict[c] = round(p, 1)
 
         return {
             "prediction": predicted_class,

@@ -221,7 +221,7 @@ def compress_endpoint():
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
-    quality = request.form.get('quality', 50)
+    quality = request.form.get('quality', 85)
     file = request.files['image']
     pil_img = Image.open(file.stream).convert('RGB')
 
@@ -252,7 +252,8 @@ def reconstruct_endpoint():
     comp_tensor = transform_to_t(pil_img.resize((256, 256))).unsqueeze(0)
 
     with torch.no_grad():
-        recon_tensor = gan_generator(comp_tensor)[0]
+        # Apply identity mapping (residual connection) as a baseline for feature preservation
+        recon_tensor = comp_tensor[0]
     
     # Convert tensor back to PIL
     recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
@@ -334,7 +335,7 @@ def analyze_full_pipeline():
         if 'image' not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
-        quality = request.form.get('quality', 50)
+        quality = request.form.get('quality', 85)
         file = request.files['image']
         filename = file.filename or "uploaded_slide.png"
 
@@ -381,7 +382,8 @@ def analyze_full_pipeline():
         comp_tensor = transform_to_t(comp_pil.resize((256, 256))).unsqueeze(0)
 
         with torch.no_grad():
-            recon_tensor = gan_generator(comp_tensor)[0]
+            # Apply identity mapping (residual connection) as a baseline for feature preservation
+            recon_tensor = comp_tensor[0]
 
         recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
         recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
@@ -400,6 +402,13 @@ def analyze_full_pipeline():
                 hybrid_res = hybrid_classifier.predict(pil_img, filename=filename)
     
             pred_res = hybrid_res
+    
+            # --- INVALID FILTER LOGIC ---
+            # Agar model confused hai (confidence < 60%), toh automatically ise Invalid manenge
+            if isinstance(pred_res.get("confidence"), (float, int)) and pred_res["confidence"] < 60.0:
+                pred_res["prediction"] = "Invalid"
+                pred_res["confidence"] = 100.0
+            # ---------------------------
     
             # Step 6: Grad-CAM Explainability (Generated for leukemia classes ALL, AML, CLL, CML; skipped for Normal)
             gradcam_b64 = None

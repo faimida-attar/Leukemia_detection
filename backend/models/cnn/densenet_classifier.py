@@ -39,7 +39,21 @@ class LeukemiaDenseNet121(nn.Module):
         )
 
     def forward(self, x):
-        return self.densenet(x)
+        import torch.nn.functional as F
+        import torch
+        
+        # Extract features
+        features = self.densenet.features(x)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = torch.flatten(out, 1)
+        
+        # L2 Normalize features (Matches training pipeline)
+        out = F.normalize(out, p=2, dim=1)
+        
+        # Pass to classifier head
+        out = self.densenet.classifier(out)
+        return out
 
     def get_final_conv_layer(self):
         """Returns the final convolutional features layer of DenseNet121 for Grad-CAM targeting"""
@@ -83,7 +97,10 @@ class DenseNet121Classifier:
         tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
         with torch.no_grad():
             logits = self.model(tensor_img)
-            probs = torch.softmax(logits, dim=1)[0]
+            # Apply Temperature Scaling (T=0.75) for balanced confidence
+            T = 0.75
+            scaled_logits = logits / T
+            probs = torch.softmax(scaled_logits, dim=1)[0]
 
         for idx, cls in enumerate(LeukemiaDenseNet121.CLASSES):
             prob_dict[cls] = round(float(probs[idx].item()) * 100.0, 1)

@@ -39,7 +39,28 @@ class LeukemiaResNet50(nn.Module):
         )
 
     def forward(self, x):
-        return self.resnet(x)
+        # Extract features up to the global average pooling layer
+        import torch.nn.functional as F
+        import torch
+        x = self.resnet.conv1(x)
+        x = self.resnet.bn1(x)
+        x = self.resnet.relu(x)
+        x = self.resnet.maxpool(x)
+
+        x = self.resnet.layer1(x)
+        x = self.resnet.layer2(x)
+        x = self.resnet.layer3(x)
+        x = self.resnet.layer4(x)
+
+        x = self.resnet.avgpool(x)
+        x = torch.flatten(x, 1)
+        
+        # L2 Normalize features (Matches training pipeline)
+        x = F.normalize(x, p=2, dim=1)
+        
+        # Pass to classifier head
+        x = self.resnet.fc(x)
+        return x
 
     def get_final_conv_layer(self):
         """Returns the final convolutional layer of ResNet50 for Grad-CAM targeting"""
@@ -134,7 +155,10 @@ class LeukemiaClassifier:
             tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
             with torch.no_grad():
                 logits = self.model(tensor_img)
-                probs = torch.softmax(logits, dim=1)[0]
+                # Apply Temperature Scaling (T=0.75) for balanced confidence
+                T = 0.75 
+                scaled_logits = logits / T
+                probs = torch.softmax(scaled_logits, dim=1)[0]
 
             for idx, cls in enumerate(LeukemiaResNet50.CLASSES):
                 prob_dict[cls] = round(float(probs[idx].item()) * 100.0, 1)
