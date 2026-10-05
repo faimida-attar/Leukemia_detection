@@ -144,7 +144,7 @@ def health():
         "models": {
             "validation_model": os.path.exists(validator_ckpt),
             "gan_cbam_generator": os.path.exists(gan_ckpt),
-            "resnet50_classifier": os.path.exists(resnet_ckpt),
+            "resnet50_classifier": os.path.exists(resnet_pth_ckpt),
             "resnet50_densenet121_hybrid": hybrid_classifier.model_loaded or os.path.exists(hybrid_ckpt)
         }
     })
