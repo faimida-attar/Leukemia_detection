@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 
@@ -59,91 +59,85 @@ def train_hybrid_perfect():
     train_samples = [(p, class_to_idx[c]) for p, c in split_data["train"]]
     val_samples = [(p, class_to_idx[c]) for p, c in split_data["val"]]
 
-    transform = transforms.Compose([
+    # Data Augmentation to prevent ALL/AML confusion
+    train_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    train_ds = LeukemiaDataset(train_samples, transform=transform)
-    val_ds = LeukemiaDataset(val_samples, transform=transform)
+    train_ds = LeukemiaDataset(train_samples, transform=train_transform)
+    val_ds = LeukemiaDataset(val_samples, transform=val_transform)
 
-    train_loader = DataLoader(train_ds, batch_size=32, shuffle=False)
+    train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=32, shuffle=False)
 
+    # Load previously trained checkpoint if exists, otherwise pretrained=True
+    save_path = os.path.join(CHECKPOINT_DIR, "leukemia_hybrid_resnet50_densenet121.pth")
     model = LeukemiaHybridResNetDenseNet(num_classes=5, pretrained=True).to(device)
-    model.eval()
+    
+    if os.path.exists(save_path):
+        print("[Load Checkpoint] Loading existing hybrid weights to fine-tune...")
+        model.load_state_dict(torch.load(save_path, map_location=device))
 
-    train_feats_list, train_lbls_list = [], []
-    val_feats_list, val_lbls_list = [], []
-
-    print("[Step 1] Pre-extracting L2-normalized ResNet50 + DenseNet121 features...")
-    with torch.no_grad():
-        for b_idx, (imgs, lbls) in enumerate(train_loader):
-            imgs = imgs.to(device)
-            # L2 normalize feature streams
-            r_feat = F.normalize(torch.flatten(model.resnet_features(imgs), 1), p=2, dim=1)
-            d_feat = F.normalize(torch.flatten(model.densenet_pool(model.densenet_features(imgs)), 1), p=2, dim=1)
-            fused = torch.cat((r_feat, d_feat), dim=1)
-            train_feats_list.append(fused.cpu())
-            train_lbls_list.append(lbls)
-
-        for b_idx, (imgs, lbls) in enumerate(val_loader):
-            imgs = imgs.to(device)
-            r_feat = F.normalize(torch.flatten(model.resnet_features(imgs), 1), p=2, dim=1)
-            d_feat = F.normalize(torch.flatten(model.densenet_pool(model.densenet_features(imgs)), 1), p=2, dim=1)
-            fused = torch.cat((r_feat, d_feat), dim=1)
-            val_feats_list.append(fused.cpu())
-            val_lbls_list.append(lbls)
-
-    train_feats = torch.cat(train_feats_list, dim=0)
-    train_lbls = torch.cat(train_lbls_list, dim=0)
-    val_feats = torch.cat(val_feats_list, dim=0)
-    val_lbls = torch.cat(val_lbls_list, dim=0)
-
-    feat_train_ds = TensorDataset(train_feats, train_lbls)
-    feat_val_ds = TensorDataset(val_feats, val_lbls)
-
-    feat_train_loader = DataLoader(feat_train_ds, batch_size=64, shuffle=True)
-    feat_val_loader = DataLoader(feat_val_ds, batch_size=64, shuffle=False)
-
-    optimizer = optim.AdamW(model.classifier.parameters(), lr=1e-3, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20, eta_min=1e-5)
+    # Fine-tuning: train the entire model end-to-end, but with a low learning rate
+    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-3)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
 
     best_acc = 0.0
-    save_path = os.path.join(CHECKPOINT_DIR, "leukemia_hybrid_resnet50_densenet121.pth")
 
-    print("[Step 2] Training Classifier Head with Cosine Annealing...")
-    for ep in range(20):
-        model.classifier.train()
+    print("[Step 2] Fine-tuning end-to-end with Augmentation...")
+    for ep in range(1):
+        model.train()
         t_corr, t_tot = 0, 0
-        for f, l in feat_train_loader:
-            f, l = f.to(device), l.to(device)
+        
+        for b_idx, (imgs, lbls) in enumerate(train_loader):
+            imgs, lbls = imgs.to(device), lbls.to(device)
             optimizer.zero_grad()
-            out = model.classifier(f)
-            loss = criterion(out, l)
+            
+            # Using end-to-end forward pass
+            r_feat = F.normalize(torch.flatten(model.resnet_features(imgs), 1), p=2, dim=1)
+            d_feat = F.normalize(torch.flatten(model.densenet_pool(model.densenet_features(imgs)), 1), p=2, dim=1)
+            fused = torch.cat((r_feat, d_feat), dim=1)
+            out = model.classifier(fused)
+            
+            loss = criterion(out, lbls)
             loss.backward()
             optimizer.step()
 
             _, p = torch.max(out, 1)
-            t_corr += (p == l).sum().item()
-            t_tot += l.size(0)
+            t_corr += (p == lbls).sum().item()
+            t_tot += lbls.size(0)
 
         scheduler.step()
-        model.classifier.eval()
+        model.eval()
         v_corr, v_tot = 0, 0
         with torch.no_grad():
-            for f, l in feat_val_loader:
-                f, l = f.to(device), l.to(device)
-                out = model.classifier(f)
+            for imgs, lbls in val_loader:
+                imgs, lbls = imgs.to(device), lbls.to(device)
+                r_feat = F.normalize(torch.flatten(model.resnet_features(imgs), 1), p=2, dim=1)
+                d_feat = F.normalize(torch.flatten(model.densenet_pool(model.densenet_features(imgs)), 1), p=2, dim=1)
+                fused = torch.cat((r_feat, d_feat), dim=1)
+                out = model.classifier(fused)
+                
                 _, p = torch.max(out, 1)
-                v_corr += (p == l).sum().item()
-                v_tot += l.size(0)
+                v_corr += (p == lbls).sum().item()
+                v_tot += lbls.size(0)
 
         train_acc = (t_corr / t_tot) * 100
         val_acc = (v_corr / v_tot) * 100
-        print(f" Epoch [{ep+1:2d}/20] Train Acc: {train_acc:6.2f}% | Val Acc: {val_acc:6.2f}%")
+        print(f" Epoch [{ep+1:2d}/10] Train Acc: {train_acc:6.2f}% | Val Acc: {val_acc:6.2f}%")
 
         if val_acc >= best_acc:
             best_acc = val_acc

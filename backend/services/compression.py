@@ -1,7 +1,7 @@
 import io
 from PIL import Image
 
-def compress_image(pil_image, quality_percentage=50):
+def compress_image(pil_image, quality_percentage=85):
     """
     Simulate JPEG image compression at selected quality percentage (10% to 90%).
     Returns:

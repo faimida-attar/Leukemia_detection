@@ -74,20 +74,22 @@ def train_standalone():
     # 1. ResNet50
     print("\n--- Training Standalone ResNet50 ---")
     r_model = LeukemiaResNet50(num_classes=5, pretrained=True).to(device)
-    # Extract 2048-dim features
     r_feature_extractor = nn.Sequential(*list(r_model.resnet.children())[:-1])
     r_feature_extractor.eval()
 
     r_train_feats, r_train_lbls = [], []
     r_val_feats, r_val_lbls = [], []
 
+    import torch.nn.functional as F
+
+    print("[Step 1] Pre-extracting L2-normalized ResNet50 features...")
     with torch.no_grad():
         for imgs, lbls in train_loader:
-            feats = torch.flatten(r_feature_extractor(imgs.to(device)), 1)
+            feats = F.normalize(torch.flatten(r_feature_extractor(imgs.to(device)), 1), p=2, dim=1)
             r_train_feats.append(feats.cpu())
             r_train_lbls.append(lbls)
         for imgs, lbls in val_loader:
-            feats = torch.flatten(r_feature_extractor(imgs.to(device)), 1)
+            feats = F.normalize(torch.flatten(r_feature_extractor(imgs.to(device)), 1), p=2, dim=1)
             r_val_feats.append(feats.cpu())
             r_val_lbls.append(lbls)
 
@@ -97,18 +99,22 @@ def train_standalone():
     r_val_ld = DataLoader(r_val_ds, batch_size=64, shuffle=False)
 
     opt_r = optim.AdamW(r_model.resnet.fc.parameters(), lr=1e-3, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss()
+    criterion_r = nn.CrossEntropyLoss(label_smoothing=0.05)
+    scheduler_r = optim.lr_scheduler.CosineAnnealingLR(opt_r, T_max=20, eta_min=1e-5)
     best_acc_r = 0.0
 
-    for ep in range(15):
+    print("[Step 2] Training ResNet50 Classifier Head with Cosine Annealing...")
+    for ep in range(20):
         r_model.resnet.fc.train()
         for f, l in r_train_ld:
             f, l = f.to(device), l.to(device)
             opt_r.zero_grad()
             out = r_model.resnet.fc(f)
-            loss = criterion(out, l)
+            loss = criterion_r(out, l)
             loss.backward()
             opt_r.step()
+
+        scheduler_r.step()
 
         r_model.resnet.fc.eval()
         corr, tot = 0, 0
@@ -120,7 +126,7 @@ def train_standalone():
                 corr += (p == l).sum().item()
                 tot += l.size(0)
         val_acc = (corr / tot) * 100
-        print(f"  ResNet50 Epoch [{ep+1:2d}/15] Val Acc: {val_acc:.2f}%")
+        print(f"  ResNet50 Epoch [{ep+1:2d}/20] Val Acc: {val_acc:.2f}%")
         if val_acc >= best_acc_r:
             best_acc_r = val_acc
             safe_save_checkpoint(r_model.state_dict(), os.path.join(CHECKPOINT_DIR, "leukemia_resnet50.pth"))
@@ -136,13 +142,14 @@ def train_standalone():
     d_train_feats, d_train_lbls = [], []
     d_val_feats, d_val_lbls = [], []
 
+    print("[Step 1] Pre-extracting L2-normalized DenseNet121 features...")
     with torch.no_grad():
         for imgs, lbls in train_loader:
-            feats = torch.flatten(d_feature_extractor(imgs.to(device)), 1)
+            feats = F.normalize(torch.flatten(d_feature_extractor(imgs.to(device)), 1), p=2, dim=1)
             d_train_feats.append(feats.cpu())
             d_train_lbls.append(lbls)
         for imgs, lbls in val_loader:
-            feats = torch.flatten(d_feature_extractor(imgs.to(device)), 1)
+            feats = F.normalize(torch.flatten(d_feature_extractor(imgs.to(device)), 1), p=2, dim=1)
             d_val_feats.append(feats.cpu())
             d_val_lbls.append(lbls)
 
@@ -152,17 +159,22 @@ def train_standalone():
     d_val_ld = DataLoader(d_val_ds, batch_size=64, shuffle=False)
 
     opt_d = optim.AdamW(d_model.densenet.classifier.parameters(), lr=1e-3, weight_decay=1e-4)
+    criterion_d = nn.CrossEntropyLoss(label_smoothing=0.05)
+    scheduler_d = optim.lr_scheduler.CosineAnnealingLR(opt_d, T_max=20, eta_min=1e-5)
     best_acc_d = 0.0
 
-    for ep in range(15):
+    print("[Step 2] Training DenseNet121 Classifier Head with Cosine Annealing...")
+    for ep in range(20):
         d_model.densenet.classifier.train()
         for f, l in d_train_ld:
             f, l = f.to(device), l.to(device)
             opt_d.zero_grad()
             out = d_model.densenet.classifier(f)
-            loss = criterion(out, l)
+            loss = criterion_d(out, l)
             loss.backward()
             opt_d.step()
+            
+        scheduler_d.step()
 
         d_model.densenet.classifier.eval()
         corr, tot = 0, 0
@@ -174,7 +186,7 @@ def train_standalone():
                 corr += (p == l).sum().item()
                 tot += l.size(0)
         val_acc = (corr / tot) * 100
-        print(f"  DenseNet121 Epoch [{ep+1:2d}/15] Val Acc: {val_acc:.2f}%")
+        print(f"  DenseNet121 Epoch [{ep+1:2d}/20] Val Acc: {val_acc:.2f}%")
         if val_acc >= best_acc_d:
             best_acc_d = val_acc
             safe_save_checkpoint(d_model.state_dict(), os.path.join(CHECKPOINT_DIR, "leukemia_densenet121.pth"))
@@ -183,3 +195,4 @@ def train_standalone():
 
 if __name__ == "__main__":
     train_standalone()
+

@@ -135,8 +135,10 @@ class ImageValidator:
             # Genuine blood smears have softer textures (lap_var typically < 800) and substantial stain.
             is_microscopy_texture = lap_var < 1000
             
+            # CLL images have small, pale lymphocytes with faint/low purple staining.
+            # Lower thresholds ensure CLL slides are not incorrectly rejected.
             has_microscopy_stain = (
-                (purple_ratio > 0.015 or pink_ratio > 0.05)
+                (purple_ratio > 0.005 or pink_ratio > 0.02 or bright_bg > 0.25)
                 and is_microscopy_texture
             )
 

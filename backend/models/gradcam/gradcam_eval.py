@@ -50,11 +50,20 @@ class GradCAM:
         for i in range(activations.shape[0]):
             activations[i, :, :] *= pooled_gradients[i]
 
-        heatmap = torch.mean(activations, dim=0).cpu().numpy()
-        heatmap = np.maximum(heatmap, 0)
+        raw_heatmap = torch.mean(activations, dim=0).cpu().numpy()
+        heatmap = np.maximum(raw_heatmap, 0)
         
         if np.max(heatmap) > 0:
             heatmap /= np.max(heatmap)
+        else:
+            # Fallback: if there is no positive evidence, use min-max normalization
+            # to guarantee that a heatmap is still produced for visualization.
+            h_min = np.min(raw_heatmap)
+            h_max = np.max(raw_heatmap)
+            if h_max - h_min > 0:
+                heatmap = (raw_heatmap - h_min) / (h_max - h_min)
+            else:
+                heatmap = np.zeros_like(raw_heatmap)
 
         return heatmap, target_class_idx
 

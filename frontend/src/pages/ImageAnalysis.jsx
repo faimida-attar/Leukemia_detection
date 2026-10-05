@@ -4,7 +4,7 @@ import {
   Sparkles, AlertCircle, Loader2, RefreshCw, FileText, Check, Trash2, Plus
 } from 'lucide-react';
 import ValidationBadge from '../components/ValidationBadge';
-import { validateImageMock, runFullPipelineMock } from '../services/mockApi';
+
 import { analyzeCompletePipelineApi, validateImageApi } from '../services/api';
 
 export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
@@ -78,8 +78,7 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
     newFileItems.forEach(async (item) => {
       try {
         const formData = new FormData();
-        formData.append('image', item.file);
-        const valRes = await validateImageApi(formData).catch(() => validateImageMock(item.file));
+        const valRes = await validateImageApi(formData);
         const isValid = valRes?.is_valid !== false && valRes?.status !== 'Invalid Image';
         setSelectedFilesList((prev) =>
           prev.map((f) => (f.id === item.id ? { ...f, isValid } : f))
@@ -155,11 +154,7 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
       formData.append('quality', compressionQuality);
 
       let resultData;
-      try {
-        resultData = await analyzeCompletePipelineApi(formData);
-      } catch (backendError) {
-        resultData = await runFullPipelineMock(file, compressionQuality);
-      }
+      resultData = await analyzeCompletePipelineApi(formData);
 
       const itemResult = {
         ...(resultData || {}),

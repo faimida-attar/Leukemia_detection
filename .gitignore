@@ -1,3 +1,7 @@
+# Zip archives & temporary packages
+*.zip
+backend.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

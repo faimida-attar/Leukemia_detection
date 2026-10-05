@@ -220,6 +220,35 @@ To re-train or fine-tune models locally:
 
 ---
 
+## 📊 Evaluation Metrics & Mathematical Formulas
+
+The system relies on rigorous mathematical evaluation rather than external black-box metric packages. The overall evaluation flow operates across two core files:
+1. **`backend/evaluate_models.py`**: Executes predictions across the 15% hidden test dataset and aggregates `y_true`, `y_pred`, and `y_probs`.
+2. **`backend/services/metrics.py`**: A custom module (`compute_multiclass_metrics_from_eval()`) that processes these arrays using NumPy to mathematically compute the multi-class Confusion Matrix (OvR approach), classification metrics, and reconstruction metrics.
+
+### 1. Image Reconstruction Metrics (GAN)
+Calculated dynamically in `calculate_reconstruction_metrics()`:
+- **MAE (Mean Absolute Error)**: `Average( |Original - Reconstructed| )`. Best: Closer to `0.0`.
+- **PSNR (Peak Signal-to-Noise Ratio)**: `10 * log10( (255^2) / MSE )`. Measures signal noise. Best: `> 30 dB`.
+- **SSIM (Structural Similarity Index)**: `[luminance] * [contrast] * [structure]`. Measures structural cell preservation. Best: Closer to `1.0`.
+
+### 2. Classification Metrics (Hybrid Classifier)
+Using the One-vs-Rest (OvR) approach, the Confusion Matrix is generated to extract:
+- **TP (True Positive)**: Correctly identified cancer cell.
+- **TN (True Negative)**: Correctly identified non-cancer cell.
+- **FP (False Positive)**: Incorrectly identified a cell as cancer.
+- **FN (False Negative)**: Missed a cancer cell.
+
+Using these variables, the following formulas are executed:
+- **Accuracy**: `(Total Correct Predictions) / (Total Samples)`
+- **Precision**: `TP / (TP + FP)` (Higher is better)
+- **Recall / Sensitivity**: `TP / (TP + FN)` (Higher is better)
+- **Specificity**: `TN / (TN + FP)` (Higher is better)
+- **F1-Score**: `2 * (Precision * Recall) / (Precision + Recall)` (Higher is better)
+- **AUC-ROC**: Calculated via NumPy Trapezoidal Integration `np.trapz(tpr, fpr)`. Best: Closer to `1.0`.
+
+---
+
 ## 📜 Medical Disclaimer
 
 > [!WARNING]

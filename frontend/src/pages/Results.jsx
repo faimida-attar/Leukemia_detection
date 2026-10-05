@@ -192,10 +192,10 @@ export default function Results({ setActiveTab, analysisData }) {
 
   // Reconstruction Quality Metrics for Active Image
   const psnrVal = currentData?.reconstruction_metrics?.psnr_db ??
-    currentData?.reconstruction_metrics?.psnr ?? 35.6;
+    currentData?.reconstruction_metrics?.psnr ?? 0;
 
-  const ssimVal = currentData?.reconstruction_metrics?.ssim ?? 0.948;
-  const maeVal = currentData?.reconstruction_metrics?.mae ?? 0.022;
+  const ssimVal = currentData?.reconstruction_metrics?.ssim ?? 0;
+  const maeVal = currentData?.reconstruction_metrics?.mae ?? 0;
 
   const isProcessing = currentData?.status === 'processing';
 
@@ -253,7 +253,7 @@ export default function Results({ setActiveTab, analysisData }) {
     { title: 'GAN + CBAM', desc: 'Attention Restoration', bg: 'bg-sky-100 text-sky-900' },
     { title: 'RECONSTRUCTED', desc: 'Feature Restored', bg: 'bg-sky-600 text-white' },
     { title: 'PSNR/SSIM/MAE', desc: 'Quality Metrics', bg: 'bg-indigo-100 text-indigo-900' },
-    { title: 'CNN/RESNET50', desc: 'Deep Feature Extractor', bg: 'bg-sky-100 text-sky-900' },
+    { title: 'RESNET50 + DENSENET121', desc: 'Deep Feature Extractor', bg: 'bg-sky-100 text-sky-900' },
     { title: 'LEUKEMIA TYPE', desc: 'ALL / AML / CLL / CML', bg: 'bg-emerald-600 text-white' },
     { title: 'GRAD-CAM', desc: 'Heatmap Explanation', bg: 'bg-purple-100 text-purple-900' }
   ];
@@ -388,7 +388,7 @@ export default function Results({ setActiveTab, analysisData }) {
       {totalImages > 0 && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            
+
             {/* Prev/Next Controls */}
             <div className="flex items-center gap-2">
               <button
@@ -424,7 +424,7 @@ export default function Results({ setActiveTab, analysisData }) {
               >
                 {resultsList.map((item, idx) => (
                   <option key={idx} value={idx}>
-                    {idx + 1}. {item.selectedFileName || item.image_information?.filename || `Image ${idx+1}`} {item.status === 'processing' ? '(Analyzing...)' : `(${item.hybrid?.prediction || 'Valid'})`}
+                    {idx + 1}. {item.selectedFileName || item.image_information?.filename || `Image ${idx + 1}`} {item.status === 'processing' ? '(Analyzing...)' : `(${item.hybrid?.prediction || 'Valid'})`}
                   </option>
                 ))}
               </select>
@@ -438,11 +438,10 @@ export default function Results({ setActiveTab, analysisData }) {
               <button
                 key={cls}
                 onClick={() => setSelectedFilter(cls)}
-                className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
-                  selectedFilter === cls
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${selectedFilter === cls
+                  ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
               >
                 {cls} {cls !== 'All' ? `(${classCounts[cls] || 0})` : `(${totalImages})`}
               </button>
@@ -461,11 +460,10 @@ export default function Results({ setActiveTab, analysisData }) {
                 <button
                   key={item.origIdx}
                   onClick={() => setActiveIndex(item.origIdx)}
-                  className={`shrink-0 w-32 p-2 rounded-2xl border text-left transition-all ${
-                    isSelected
-                      ? 'border-sky-500 bg-sky-50/80 ring-2 ring-sky-400 shadow-sm'
-                      : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-slate-50'
-                  }`}
+                  className={`shrink-0 w-32 p-2 rounded-2xl border text-left transition-all ${isSelected
+                    ? 'border-sky-500 bg-sky-50/80 ring-2 ring-sky-400 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-slate-50'
+                    }`}
                 >
                   <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-slate-100 border border-slate-200 mb-1.5">
                     <img
@@ -482,8 +480,8 @@ export default function Results({ setActiveTab, analysisData }) {
                       </div>
                     )}
                   </div>
-                  <p className="text-[11px] font-bold text-slate-900 truncate" title={item.selectedFileName || `Image ${item.origIdx+1}`}>
-                    {item.selectedFileName || `Image ${item.origIdx+1}`}
+                  <p className="text-[11px] font-bold text-slate-900 truncate" title={item.selectedFileName || `Image ${item.origIdx + 1}`}>
+                    {item.selectedFileName || `Image ${item.origIdx + 1}`}
                   </p>
                   <div className="flex items-center justify-between text-[10px] font-semibold mt-0.5">
                     <span className="text-sky-700 font-mono font-bold truncate">{pred}</span>
@@ -619,7 +617,8 @@ export default function Results({ setActiveTab, analysisData }) {
 
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
               <div><span className="text-slate-400 font-sans">Resolution:</span> <strong className="text-slate-900">{origRes}</strong></div>
-              <div><span className="text-slate-400 font-sans">Architecture:</span> <strong className="text-sky-700 font-sans">GAN + CBAM Attention</strong></div>
+              <div><span className="text-slate-400 font-sans">File Size:</span> <strong className="text-slate-900">{origSizeFormatted}</strong></div>
+              <div className="col-span-2"><span className="text-slate-400 font-sans">Architecture:</span> <strong className="text-sky-700 font-sans">GAN + CBAM Attention</strong></div>
             </div>
           </div>
 
@@ -760,10 +759,10 @@ export default function Results({ setActiveTab, analysisData }) {
         <div className="border-b border-sky-200/80 pb-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
             <h2 className="text-base font-extrabold text-sky-900 uppercase tracking-wider">
-              6. MULTI-MODEL LEUKEMIA CLASSIFICATION OUTPUTS
+              6. LEUKEMIA CLASSIFICATION OUTPUT
             </h2>
             <p className="text-xs text-sky-800">
-              Individual outputs for ResNet50, DenseNet121, and the proposed Hybrid ResNet50 + DenseNet121 model for the reconstructed slide
+              Final classification output from the proposed Hybrid ResNet50 + DenseNet121 model for the reconstructed slide
             </p>
           </div>
           <div className="flex items-center gap-1 font-mono text-xs">
@@ -779,7 +778,7 @@ export default function Results({ setActiveTab, analysisData }) {
             ))}
           </div>
         </div>
-         {isInvalid ? (
+        {isInvalid ? (
           <div className="bg-white border border-rose-200 rounded-2xl p-8 text-center space-y-3 shadow-sm">
             <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
               <XCircle className="w-8 h-8" />
@@ -792,86 +791,8 @@ export default function Results({ setActiveTab, analysisData }) {
             </p>
           </div>
         ) : (
-          /* 3 Models Grid */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* Model 1: ResNet50 */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-2xs flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Backbone 1</span>
-                    <h3 className="text-base font-extrabold text-slate-900">ResNet50</h3>
-                  </div>
-                  <span className="text-xs font-black font-mono px-2.5 py-1 rounded bg-slate-100 text-slate-800 border border-slate-200">
-                    {resnetClassification.prediction}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center text-xs font-mono">
-                  <span className="text-slate-500 font-sans">Confidence:</span>
-                  <span className="font-bold text-slate-900 text-sm">{resnetClassification.confidence}%</span>
-                </div>
-
-                {/* ResNet50 Probabilities */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-400 block uppercase">Class Probabilities</span>
-                  {Object.entries(resnetClassification.probabilities || {}).map(([cls, prob]) => (
-                    <div key={cls} className="space-y-0.5">
-                      <div className="flex justify-between text-[11px] font-semibold text-slate-700">
-                        <span>{cls} ({fullClassNames[cls] || cls})</span>
-                        <span className="font-mono">{prob}%</span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-1.5 rounded-full ${cls === resnetClassification.prediction ? 'bg-sky-600' : 'bg-slate-300'}`}
-                          style={{ width: `${prob}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Model 2: DenseNet121 */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-2xs flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Backbone 2</span>
-                    <h3 className="text-base font-extrabold text-slate-900">DenseNet121</h3>
-                  </div>
-                  <span className="text-xs font-black font-mono px-2.5 py-1 rounded bg-slate-100 text-slate-800 border border-slate-200">
-                    {densenetClassification.prediction}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center text-xs font-mono">
-                  <span className="text-slate-500 font-sans">Confidence:</span>
-                  <span className="font-bold text-slate-900 text-sm">{densenetClassification.confidence}%</span>
-                </div>
-
-                {/* DenseNet121 Probabilities */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-400 block uppercase">Class Probabilities</span>
-                  {Object.entries(densenetClassification.probabilities || {}).map(([cls, prob]) => (
-                    <div key={cls} className="space-y-0.5">
-                      <div className="flex justify-between text-[11px] font-semibold text-slate-700">
-                        <span>{cls} ({fullClassNames[cls] || cls})</span>
-                        <span className="font-mono">{prob}%</span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-1.5 rounded-full ${cls === densenetClassification.prediction ? 'bg-sky-600' : 'bg-slate-300'}`}
-                          style={{ width: `${prob}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+          /* Hybrid Model Only */
+          <div className="max-w-2xl mx-auto">
 
             {/* Model 3: Hybrid ResNet50 + DenseNet121 */}
             <div className="bg-sky-50/90 border border-sky-300 rounded-2xl p-5 space-y-4 shadow-xs ring-1 ring-sky-300 flex flex-col justify-between">
@@ -971,8 +892,7 @@ export default function Results({ setActiveTab, analysisData }) {
                   <th className="p-3 font-mono">PSNR (dB)</th>
                   <th className="p-3 font-mono">SSIM</th>
                   <th className="p-3 font-mono">MAE</th>
-                  <th className="p-3">ResNet50</th>
-                  <th className="p-3">DenseNet121</th>
+
                   <th className="p-3">Hybrid Prediction</th>
                   <th className="p-3 text-center">Action</th>
                 </tr>
@@ -981,7 +901,7 @@ export default function Results({ setActiveTab, analysisData }) {
                 {resultsList.map((item, idx) => {
                   const isSelected = activeIndex === idx;
                   const isVal = item.is_valid !== false;
-                  const fname = item.selectedFileName || item.image_information?.filename || `Slide_${idx+1}.jpg`;
+                  const fname = item.selectedFileName || item.image_information?.filename || `Slide_${idx + 1}.jpg`;
                   const psnr = item.reconstruction_metrics?.psnr_db ?? item.reconstruction_metrics?.psnr ?? 'N/A';
                   const ssim = item.reconstruction_metrics?.ssim ?? 'N/A';
                   const mae = item.reconstruction_metrics?.mae ?? 'N/A';
@@ -996,28 +916,21 @@ export default function Results({ setActiveTab, analysisData }) {
                   return (
                     <tr
                       key={idx}
-                      className={`transition-colors ${
-                        isSelected ? 'bg-sky-50/80 font-semibold' : 'hover:bg-slate-50/80'
-                      }`}
+                      className={`transition-colors ${isSelected ? 'bg-sky-50/80 font-semibold' : 'hover:bg-slate-50/80'
+                        }`}
                     >
                       <td className="p-3 font-bold text-slate-900">{idx + 1}</td>
                       <td className="p-3 font-mono text-slate-800 max-w-[150px] truncate" title={fname}>{fname}</td>
                       <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isVal ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isVal ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}>
                           {isVal ? 'Valid' : 'Invalid'}
                         </span>
                       </td>
                       <td className="p-3 font-mono">{typeof psnr === 'number' ? psnr.toFixed(2) : psnr}</td>
                       <td className="p-3 font-mono">{typeof ssim === 'number' ? ssim.toFixed(4) : ssim}</td>
                       <td className="p-3 font-mono">{typeof mae === 'number' ? mae.toFixed(4) : mae}</td>
-                      <td className="p-3">
-                        <span className="font-mono text-slate-800">{resnetPred}</span> <span className="text-[10px] text-slate-500">({resnetConf}%)</span>
-                      </td>
-                      <td className="p-3">
-                        <span className="font-mono text-slate-800">{densenetPred}</span> <span className="text-[10px] text-slate-500">({densenetConf}%)</span>
-                      </td>
+
                       <td className="p-3">
                         <span className="font-mono font-bold text-sky-900">{hybridPred}</span> <span className="text-[10px] text-emerald-700 font-bold">({hybridConf}%)</span>
                       </td>
@@ -1027,11 +940,10 @@ export default function Results({ setActiveTab, analysisData }) {
                             setActiveIndex(idx);
                             document.getElementById('active-result-section')?.scrollIntoView({ behavior: 'smooth' });
                           }}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${
-                            isSelected
-                              ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-                          }`}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${isSelected
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                            }`}
                         >
                           Inspect
                         </button>
