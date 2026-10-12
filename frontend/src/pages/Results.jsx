@@ -142,32 +142,25 @@ export default function Results({ setActiveTab, analysisData }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedFilter, setSelectedFilter] = useState('All');
 
-  const handleDownloadReport = async () => {
+  const handleDownloadReport = () => {
     const currentItem = resultsList[activeIndex] || resultsList[0] || analysisData;
-    if (!currentItem) return;
-    try {
-      setIsDownloadingPdf(true);
-      setExportError(null);
-      const blob = await generatePdfReportApi(currentItem);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const rawName = currentItem?.image_information?.filename || currentItem?.selectedFileName || `slide_${activeIndex + 1}`;
-      const cleanName = String(rawName).replace(/\.[^/.]+$/, "");
-      link.download = `Leukemia_Research_Report_${cleanName}_${timestamp}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error('Failed to download PDF report:', err);
-      // Fallback: if server-side PDF fails, use window.print
-      window.print();
-    } finally {
-      setIsDownloadingPdf(false);
-    }
+    const rawName = currentItem?.image_information?.filename || currentItem?.selectedFileName || `slide_${activeIndex + 1}`;
+    const cleanName = String(rawName).replace(/\.[^/.]+$/, "");
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const originalTitle = document.title;
+
+    // Set descriptive document title so the browser defaults the downloaded PDF name to Leukemia_Research_Report_<filename>
+    document.title = `Leukemia_Research_Report_${cleanName}_${timestamp}`;
+
+    // Trigger high-fidelity visual dashboard report print/Save as PDF
+    window.print();
+
+    // Restore title after print dialog closes
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
   };
+
 
 
   const totalImages = resultsList.length;
@@ -377,16 +370,12 @@ export default function Results({ setActiveTab, analysisData }) {
           </button>
           <button
             onClick={handleDownloadReport}
-            disabled={isDownloadingPdf || !resultsList || resultsList.length === 0}
+            disabled={!resultsList || resultsList.length === 0}
             className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-            title="Download comprehensive medical analysis research report (.pdf) directly to your laptop"
+            title="Download comprehensive visual dashboard research report (.pdf) directly to your laptop"
           >
-            {isDownloadingPdf ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-            ) : (
-              <Download className="w-4 h-4 text-sky-100" />
-            )}
-            <span>{isDownloadingPdf ? 'Downloading...' : 'Download Report'}</span>
+            <Download className="w-4 h-4 text-sky-100" />
+            <span>Download Report</span>
           </button>
         </div>
       </div>
@@ -418,15 +407,10 @@ export default function Results({ setActiveTab, analysisData }) {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleDownloadReport}
-                disabled={isDownloadingPdf}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                title="Download medical research report (.pdf) directly to your laptop"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer print:hidden"
+                title="Download full visual dashboard research report (.pdf) directly to your laptop"
               >
-                {isDownloadingPdf ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5" />
-                )}
+                <Download className="w-3.5 h-3.5" />
                 <span>Download Report</span>
               </button>
               <button
