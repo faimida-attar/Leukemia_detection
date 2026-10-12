@@ -116,3 +116,29 @@ export const exportExcelReportApi = async (analysisData) => {
 
   return response.blob();
 };
+
+export const generatePdfReportApi = async (analysisData) => {
+  // Strip large base64 strings to keep request lightweight
+  const sanitizeItem = (item) => {
+    if (!item) return {};
+    const { images, previewUrl, ...rest } = item;
+    return rest;
+  };
+
+  const payload = sanitizeItem(analysisData);
+
+  const response = await fetch(`${BASE_URL}/generate-report`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Failed to generate PDF report' }));
+    throw new Error(err.error || 'Failed to generate PDF report');
+  }
+
+  return response.blob();
+};

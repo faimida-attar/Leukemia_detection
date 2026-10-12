@@ -9,6 +9,9 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     """
     Generate a professional academic research report PDF for the leukemia analysis session.
     """
+    if isinstance(analysis_results, list):
+        analysis_results = analysis_results[0] if len(analysis_results) > 0 else {}
+
     doc = SimpleDocTemplate(
         output_pdf_path,
         pagesize=letter,
@@ -75,14 +78,28 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     story.append(Paragraph("Leukemia Detection & Analysis Research Report", subtitle_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563eb'), spaceAfter=12))
 
+    fname = (
+        analysis_results.get('image_information', {}).get('filename') or
+        analysis_results.get('selectedFileName') or
+        'slide.png'
+    )
+    dims = (
+        analysis_results.get('image_information', {}).get('original_dimensions') or
+        analysis_results.get('image_information', {}).get('dimensions') or
+        'N/A'
+    )
+    qual = analysis_results.get('compression_information', {}).get('quality', 50)
+    red = analysis_results.get('compression_information', {}).get('reduction', 0)
+    v_stat = analysis_results.get('validation_status') or ('Valid' if analysis_results.get('is_valid') is not False else 'Invalid')
+
     # General Information Table
     info_data = [
         [Paragraph("<b>Report Date:</b>", normal_style), Paragraph(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), normal_style),
-         Paragraph("<b>Validation Status:</b>", normal_style), Paragraph(f"<font color='green'><b>{analysis_results.get('validation_status', 'Valid')}</b></font>", normal_style)],
-        [Paragraph("<b>File Name:</b>", normal_style), Paragraph(str(analysis_results.get('image_information', {}).get('filename', 'slide.png')), normal_style),
-         Paragraph("<b>Dimensions:</b>", normal_style), Paragraph(str(analysis_results.get('image_information', {}).get('dimensions', 'N/A')), normal_style)],
-        [Paragraph("<b>Compression Level:</b>", normal_style), Paragraph(f"{analysis_results.get('compression_information', {}).get('quality', 50)}%", normal_style),
-         Paragraph("<b>Size Reduction:</b>", normal_style), Paragraph(f"{analysis_results.get('compression_information', {}).get('reduction', 0)}%", normal_style)],
+         Paragraph("<b>Validation Status:</b>", normal_style), Paragraph(f"<font color='green'><b>{v_stat}</b></font>", normal_style)],
+        [Paragraph("<b>File Name:</b>", normal_style), Paragraph(str(fname), normal_style),
+         Paragraph("<b>Dimensions:</b>", normal_style), Paragraph(str(dims), normal_style)],
+        [Paragraph("<b>Compression Level:</b>", normal_style), Paragraph(f"{qual}%", normal_style),
+         Paragraph("<b>Size Reduction:</b>", normal_style), Paragraph(f"{red}%", normal_style)],
     ]
     info_table = Table(info_data, colWidths=[110, 160, 120, 150])
     info_table.setStyle(TableStyle([
@@ -99,11 +116,15 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     # Reconstruction Metrics
     story.append(Paragraph("1. GAN + CBAM Reconstruction Evaluation Metrics", heading2_style))
     recon_metrics = analysis_results.get('reconstruction_metrics', {})
+    p_val = recon_metrics.get('psnr_db') if recon_metrics.get('psnr_db') is not None else recon_metrics.get('psnr', 'N/A')
+    s_val = recon_metrics.get('ssim', 'N/A')
+    m_val = recon_metrics.get('mae', 'N/A')
+
     metrics_data = [
         [Paragraph("<b>Metric</b>", normal_style), Paragraph("<b>Value</b>", normal_style), Paragraph("<b>Interpretation</b>", normal_style)],
-        [Paragraph("PSNR (Peak Signal-to-Noise Ratio)", normal_style), Paragraph(f"<b>{recon_metrics.get('psnr', 'N/A')} dB</b>", normal_style), Paragraph("Higher indicates superior signal reconstruction fidelity", normal_style)],
-        [Paragraph("SSIM (Structural Similarity Index)", normal_style), Paragraph(f"<b>{recon_metrics.get('ssim', 'N/A')}</b>", normal_style), Paragraph("Structural similarity score (1.0 = identical)", normal_style)],
-        [Paragraph("MAE (Mean Absolute Error)", normal_style), Paragraph(f"<b>{recon_metrics.get('mae', 'N/A')}</b>", normal_style), Paragraph("Lower indicates minimal pixel error deviation", normal_style)],
+        [Paragraph("PSNR (Peak Signal-to-Noise Ratio)", normal_style), Paragraph(f"<b>{p_val} dB</b>", normal_style), Paragraph("Higher indicates superior signal reconstruction fidelity", normal_style)],
+        [Paragraph("SSIM (Structural Similarity Index)", normal_style), Paragraph(f"<b>{s_val}</b>", normal_style), Paragraph("Structural similarity score (1.0 = identical)", normal_style)],
+        [Paragraph("MAE (Mean Absolute Error)", normal_style), Paragraph(f"<b>{m_val}</b>", normal_style), Paragraph("Lower indicates minimal pixel error deviation", normal_style)],
     ]
     metrics_table = Table(metrics_data, colWidths=[200, 100, 240])
     metrics_table.setStyle(TableStyle([
@@ -117,11 +138,27 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     story.append(Spacer(1, 10))
 
     # Classification Result
-    story.append(Paragraph("2. ResNet50 Multiclass Leukemia Classification Result", heading2_style))
+    story.append(Paragraph("2. Deep Learning Leukemia Classification Result (Hybrid ResNet50 + DenseNet121)", heading2_style))
     cls_res = analysis_results.get('classification', {})
-    prediction = cls_res.get('prediction', 'N/A')
-    full_name = cls_res.get('full_name', 'N/A')
-    confidence = cls_res.get('confidence', 0.0) * 100.0
+    prediction = (
+        analysis_results.get('hybrid_pred') or
+        analysis_results.get('hybrid', {}).get('prediction') or
+        cls_res.get('prediction', 'N/A')
+    )
+    disease_map = {
+        "ALL": "Acute Lymphoblastic Leukemia",
+        "AML": "Acute Myeloid Leukemia",
+        "CLL": "Chronic Lymphocytic Leukemia",
+        "CML": "Chronic Myeloid Leukemia",
+        "Normal": "Normal Non-Leukemic Smear"
+    }
+    full_name = cls_res.get('full_name') or disease_map.get(prediction, prediction)
+    c_raw = (
+        analysis_results.get('hybrid_conf') or
+        analysis_results.get('hybrid', {}).get('confidence') or
+        cls_res.get('confidence', 0.0)
+    )
+    confidence = float(c_raw * 100.0 if (isinstance(c_raw, (int, float)) and c_raw <= 1.0 and c_raw > 0) else (c_raw or 0.0))
 
     cls_data = [
         [Paragraph("<b>Predicted Leukemia Type:</b>", normal_style), Paragraph(f"<font color='#1e40af' size=11><b>{prediction} ({full_name})</b></font>", normal_style)],

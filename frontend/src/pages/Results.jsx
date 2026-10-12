@@ -6,11 +6,12 @@ import {
   ChevronLeft, ChevronRight, Table, Loader2, Upload, XCircle, FileSpreadsheet, AlertTriangle
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
-import { exportExcelReportApi } from '../services/api';
+import { exportExcelReportApi, generatePdfReportApi } from '../services/api';
 
 export default function Results({ setActiveTab, analysisData }) {
   const [diffViewMode, setDiffViewMode] = useState('side-by-side');
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [exportError, setExportError] = useState(null);
 
   const handlePrint = () => {
@@ -140,6 +141,34 @@ export default function Results({ setActiveTab, analysisData }) {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedFilter, setSelectedFilter] = useState('All');
+
+  const handleDownloadReport = async () => {
+    const currentItem = resultsList[activeIndex] || resultsList[0] || analysisData;
+    if (!currentItem) return;
+    try {
+      setIsDownloadingPdf(true);
+      setExportError(null);
+      const blob = await generatePdfReportApi(currentItem);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const rawName = currentItem?.image_information?.filename || currentItem?.selectedFileName || `slide_${activeIndex + 1}`;
+      const cleanName = String(rawName).replace(/\.[^/.]+$/, "");
+      link.download = `Leukemia_Research_Report_${cleanName}_${timestamp}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to download PDF report:', err);
+      // Fallback: if server-side PDF fails, use window.print
+      window.print();
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
 
   const totalImages = resultsList.length;
   const completedItems = resultsList.filter(item => item?.status !== 'processing');
@@ -347,6 +376,19 @@ export default function Results({ setActiveTab, analysisData }) {
             <span>{isExportingExcel ? 'Exporting...' : 'Export Excel Report'}</span>
           </button>
           <button
+            onClick={handleDownloadReport}
+            disabled={isDownloadingPdf || !resultsList || resultsList.length === 0}
+            className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            title="Download comprehensive medical analysis research report (.pdf) directly to your laptop"
+          >
+            {isDownloadingPdf ? (
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+            ) : (
+              <Download className="w-4 h-4 text-sky-100" />
+            )}
+            <span>{isDownloadingPdf ? 'Downloading...' : 'Download Report'}</span>
+          </button>
+          <button
             onClick={handlePrint}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors border border-slate-200"
           >
@@ -355,7 +397,7 @@ export default function Results({ setActiveTab, analysisData }) {
           </button>
           <button
             onClick={() => setActiveTab('analysis')}
-            className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
+            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
           >
             Upload New Slide
           </button>
@@ -387,6 +429,19 @@ export default function Results({ setActiveTab, analysisData }) {
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleDownloadReport}
+                disabled={isDownloadingPdf}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                title="Download medical research report (.pdf) directly to your laptop"
+              >
+                {isDownloadingPdf ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )}
+                <span>Download Report</span>
+              </button>
               <button
                 onClick={handleExportExcel}
                 disabled={isExportingExcel}
