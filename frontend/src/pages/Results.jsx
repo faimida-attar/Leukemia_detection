@@ -3,12 +3,15 @@ import {
   FileText, Download, ShieldCheck, CheckCircle2, Sliders,
   Layers, BarChart3, Activity, Eye, Printer, Sparkles, ArrowRight, Info,
   Maximize2, X, SlidersHorizontal, RefreshCw, ZoomIn, Image as ImageIcon, ExternalLink,
-  ChevronLeft, ChevronRight, Table, Loader2, Upload, XCircle
+  ChevronLeft, ChevronRight, Table, Loader2, Upload, XCircle, FileSpreadsheet, AlertTriangle
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
+import { exportExcelReportApi } from '../services/api';
 
 export default function Results({ setActiveTab, analysisData }) {
   const [diffViewMode, setDiffViewMode] = useState('side-by-side');
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [exportError, setExportError] = useState(null);
 
   const handlePrint = () => {
     window.print();
@@ -102,6 +105,29 @@ export default function Results({ setActiveTab, analysisData }) {
         </html>
       `);
       imageWindow.document.close();
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!resultsList || resultsList.length === 0) return;
+    try {
+      setIsExportingExcel(true);
+      setExportError(null);
+      const blob = await exportExcelReportApi(resultsList);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const timestamp = new Date().toISOString().slice(0, 10);
+      link.download = `Leukemia_Analysis_Report_${timestamp}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to export Excel report:', err);
+      setExportError(err.message || 'Failed to export Excel report. Please ensure the backend server is running.');
+    } finally {
+      setIsExportingExcel(false);
     }
   };
 
@@ -306,7 +332,20 @@ export default function Results({ setActiveTab, analysisData }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 print:hidden">
+        <div className="flex flex-wrap items-center gap-3 print:hidden">
+          <button
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            title="Download full analysis report as a documented .xlsx Excel spreadsheet"
+          >
+            {isExportingExcel ? (
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+            )}
+            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel Report'}</span>
+          </button>
           <button
             onClick={handlePrint}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors border border-slate-200"
@@ -326,6 +365,18 @@ export default function Results({ setActiveTab, analysisData }) {
       {/* 1. BATCH PROCESSING SUMMARY HEADER */}
       {totalImages > 0 && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+          {exportError && (
+            <div className="flex items-center justify-between p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{exportError}</span>
+              </div>
+              <button onClick={() => setExportError(null)} className="text-rose-600 hover:text-rose-800 font-bold p-1 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
@@ -335,7 +386,20 @@ export default function Results({ setActiveTab, analysisData }) {
                 Batch Evaluation Metrics ({totalImages} {totalImages === 1 ? 'Image' : 'Images'} Processed)
               </h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleExportExcel}
+                disabled={isExportingExcel}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                title="Export batch analysis report to .xlsx Excel"
+              >
+                {isExportingExcel ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )}
+                <span>Export Excel Report ({totalImages})</span>
+              </button>
               <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
                 Valid: {validCount}
               </span>
@@ -872,14 +936,29 @@ export default function Results({ setActiveTab, analysisData }) {
       {/* 7. BATCH MASTER TABLE */}
       {totalImages > 0 && (
         <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-3">
             <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
               <Table className="w-4 h-4 text-sky-600" />
               <span>BATCH MASTER TABLE ({totalImages} UPLOADED SLIDES)</span>
             </h2>
-            <span className="text-xs text-slate-500 font-mono">
-              Click 'Inspect' to make an image active & view detailed analysis
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-500 font-mono hidden md:inline">
+                Click 'Inspect' to make an image active & view detailed analysis
+              </span>
+              <button
+                onClick={handleExportExcel}
+                disabled={isExportingExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                title="Export batch master table to .xlsx Excel"
+              >
+                {isExportingExcel ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                )}
+                <span>Export Excel Report</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto border border-slate-200 rounded-2xl">

@@ -81,6 +81,7 @@ from models.gradcam.gradcam_eval import GradCAM
 from services.compression import compress_image
 from services.metrics import calculate_reconstruction_metrics
 from services.report_generator import generate_pdf_report
+from services.excel_exporter import generate_excel_report
 
 
 # -------------------------------------------------------------------
@@ -622,6 +623,32 @@ def generate_report_endpoint():
         return send_file(output_pdf_path, as_attachment=True, download_name=report_filename)
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF report: {str(e)}"}), 500
+
+@app.route('/api/export-excel', methods=['POST'])
+def export_excel_endpoint():
+    """
+    Generate downloadable documented Excel (.xlsx) report for analyzed images.
+    Supports both single image and multiple-image batch results.
+    """
+    data = request.json
+    if not data:
+        return jsonify({"error": "No analysis data provided"}), 400
+
+    report_filename = f"Leukemia_Analysis_Report_{uuid.uuid4().hex[:6]}.xlsx"
+    output_excel_path = os.path.join(RESULTS_DIR, report_filename)
+
+    try:
+        generate_excel_report(data, output_excel_path)
+        return send_file(
+            output_excel_path,
+            as_attachment=True,
+            download_name=report_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to generate Excel report: {str(e)}"}), 500
 
 # -------------------------------------------------------------------
 # Catch-all route — serves the built React frontend for all non-API routes

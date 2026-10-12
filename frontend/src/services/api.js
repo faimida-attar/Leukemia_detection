@@ -88,3 +88,31 @@ export const analyzeCompletePipelineApi = async (formData) => {
   }
   return response.json();
 };
+
+export const exportExcelReportApi = async (analysisData) => {
+  // Strip large base64 strings to ensure ultra-fast and lightweight payload
+  const sanitizeItem = (item) => {
+    if (!item) return {};
+    const { images, previewUrl, ...rest } = item;
+    return rest;
+  };
+
+  const payload = Array.isArray(analysisData)
+    ? analysisData.map(sanitizeItem)
+    : sanitizeItem(analysisData);
+
+  const response = await fetch(`${BASE_URL}/export-excel`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Failed to generate Excel report' }));
+    throw new Error(err.error || 'Failed to export Excel report');
+  }
+
+  return response.blob();
+};
