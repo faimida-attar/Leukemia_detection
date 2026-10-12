@@ -389,13 +389,6 @@ export default function Results({ setActiveTab, analysisData }) {
             <span>{isDownloadingPdf ? 'Downloading...' : 'Download Report'}</span>
           </button>
           <button
-            onClick={handlePrint}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors border border-slate-200"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Print Dashboard</span>
-          </button>
-          <button
             onClick={() => setActiveTab('analysis')}
             className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
           >
