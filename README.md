@@ -249,7 +249,3 @@ Using these variables, the following formulas are executed:
 
 ---
 
-## 📜 Medical Disclaimer
-
-> [!WARNING]
-> This system is designed solely for educational, research, and decision-support purposes. It is **not** intended for independent clinical diagnosis. All automated findings must be verified by a qualified pathologist or healthcare practitioner.
