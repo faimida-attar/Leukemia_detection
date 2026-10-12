@@ -388,12 +388,6 @@ export default function Results({ setActiveTab, analysisData }) {
             )}
             <span>{isDownloadingPdf ? 'Downloading...' : 'Download Report'}</span>
           </button>
-          <button
-            onClick={() => setActiveTab('analysis')}
-            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition-colors"
-          >
-            Upload New Slide
-          </button>
         </div>
       </div>
 
