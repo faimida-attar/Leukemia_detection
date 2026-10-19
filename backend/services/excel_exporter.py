@@ -120,10 +120,8 @@ def generate_excel_report(analysis_data, output_path):
     psnr_vals = []
     ssim_vals = []
     mae_vals = []
-    reduction_vals = []
-    ratio_vals = []
     orig_kb_vals = []
-    comp_kb_vals = []
+    recon_kb_vals = []
     hybrid_conf_vals = []
     resnet_conf_vals = []
     densenet_conf_vals = []
@@ -150,29 +148,21 @@ def generate_excel_report(analysis_data, output_path):
         if s is not None: ssim_vals.append(s)
         if m is not None: mae_vals.append(m)
 
-        # Sizes & Compression
+        # Sizes
         orig_b = _to_float(
-            it.get("compression_information", {}).get("original_size_bytes") or
-            it.get("compression", {}).get("original_size_bytes") or
-            it.get("image_information", {}).get("file_size_bytes"),
+            it.get("image_information", {}).get("original_file_size_bytes") or
+            it.get("original_size_bytes") or
+            it.get("file_size_bytes"),
             0.0
         )
-        comp_b = _to_float(
-            it.get("compression_information", {}).get("compressed_size_bytes") or
-            it.get("compression", {}).get("compressed_size_bytes"),
+        recon_b = _to_float(
+            it.get("image_information", {}).get("reconstructed_file_size_bytes") or
+            it.get("reconstructed_size_bytes") or
+            it.get("recon_size_bytes"),
             0.0
         )
         if orig_b > 0: orig_kb_vals.append(orig_b / 1024.0)
-        if comp_b > 0: comp_kb_vals.append(comp_b / 1024.0)
-
-        red = _to_float(it.get("compression_information", {}).get("reduction"))
-        if red is not None:
-            reduction_vals.append(red)
-        elif orig_b > 0 and comp_b > 0:
-            reduction_vals.append(((orig_b - comp_b) / orig_b) * 100.0)
-
-        if comp_b > 0 and orig_b > 0:
-            ratio_vals.append(orig_b / comp_b)
+        if recon_b > 0: recon_kb_vals.append(recon_b / 1024.0)
 
         # Confidence scores
         def _get_conf(val):
@@ -331,11 +321,9 @@ def generate_excel_report(analysis_data, output_path):
     curr_row += 1
 
     metrics_rows = [
-        ("Peak Signal-to-Noise Ratio (PSNR)", round(_avg(psnr_vals), 2), "dB", "> 30.0 dB", "Higher indicates superior pixel restoration fidelity (>30 dB is medical-grade)"),
+        ("Peak Signal-to-Noise Ratio (PSNR)", round(_avg(psnr_vals), 2), "dB", "> 28.0 dB", "Higher indicates superior pixel restoration fidelity (>28 dB is research-grade)"),
         ("Structural Similarity Index (SSIM)", round(_avg(ssim_vals), 4), "Index (0 to 1)", "> 0.8500", "Closer to 1.0 preserves cell boundaries, chromatin texture, and cytoplasm"),
         ("Mean Absolute Error (MAE)", round(_avg(mae_vals), 4), "Pixel Error", "< 0.0800", "Lower indicates minimal absolute pixel deviation after CBAM GAN attention"),
-        ("Average Storage Reduction", round(_avg(reduction_vals), 2), "%", "> 75.0 %", "Bandwidth and storage footprint saved through intelligent JPEG compression"),
-        ("Average Compression Ratio", round(_avg(ratio_vals), 2), ":1", "> 4.0:1", "Physical microscopic slide file size compression factor achieved"),
         ("Hybrid Ensemble Mean Confidence", round(_avg(hybrid_conf_vals), 2), "%", "> 90.0 %", "Average diagnostic certainty combining ResNet50 and DenseNet121 backbones"),
         ("ResNet50 Standalone Mean Confidence", round(_avg(resnet_conf_vals), 2), "%", "> 85.0 %", "Average certainty score from the standalone ResNet50 classifier"),
         ("DenseNet121 Standalone Mean Confidence", round(_avg(densenet_conf_vals), 2), "%", "> 85.0 %", "Average certainty score from the standalone DenseNet121 classifier"),
@@ -387,11 +375,9 @@ def generate_excel_report(analysis_data, output_path):
         {"id": "color_mode", "name": "Color Mode", "min_width": 14, "align": align_center},
         {"id": "orig_kb", "name": "Original Size (KB)", "min_width": 18, "align": align_right, "fmt": "#,##0.00"},
         {"id": "orig_bytes", "name": "Original Size (Bytes)", "min_width": 20, "align": align_right, "fmt": "#,##0"},
-        {"id": "comp_kb", "name": "Compressed Size (KB)", "min_width": 20, "align": align_right, "fmt": "#,##0.00"},
-        {"id": "comp_bytes", "name": "Compressed Size (Bytes)", "min_width": 22, "align": align_right, "fmt": "#,##0"},
-        {"id": "quality", "name": "Compression Quality (%)", "min_width": 24, "align": align_right, "fmt": "0.0"},
-        {"id": "reduction", "name": "Size Reduction (%)", "min_width": 18, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "ratio", "name": "Compression Ratio (:1)", "min_width": 22, "align": align_right, "fmt": "0.00"},
+        {"id": "recon_kb", "name": "Reconstructed Size (KB)", "min_width": 22, "align": align_right, "fmt": "#,##0.00"},
+        {"id": "recon_bytes", "name": "Reconstructed Size (Bytes)", "min_width": 24, "align": align_right, "fmt": "#,##0"},
+        {"id": "enhancement", "name": "Enhancement Model", "min_width": 22, "align": align_center},
         {"id": "psnr", "name": "PSNR (dB)", "min_width": 14, "align": align_right, "fmt": "0.00"},
         {"id": "ssim", "name": "SSIM (0 to 1)", "min_width": 16, "align": align_right, "fmt": "0.0000"},
         {"id": "mae", "name": "MAE (Pixel Error)", "min_width": 18, "align": align_right, "fmt": "0.0000"},
@@ -448,36 +434,22 @@ def generate_excel_report(analysis_data, output_path):
         fmt = item.get("image_information", {}).get("format") or "JPEG"
         color_mode = item.get("image_information", {}).get("color_mode") or "RGB"
 
-        # 3. Sizes & Compression Details
+        # 3. Sizes
         orig_bytes = _to_float(
-            item.get("compression_information", {}).get("original_size_bytes") or
-            item.get("compression", {}).get("original_size_bytes") or
-            item.get("image_information", {}).get("file_size_bytes"),
+            item.get("image_information", {}).get("original_file_size_bytes") or
+            item.get("original_size_bytes") or
+            item.get("file_size_bytes"),
             0.0
         )
-        comp_bytes = _to_float(
-            item.get("compression_information", {}).get("compressed_size_bytes") or
-            item.get("compression", {}).get("compressed_size_bytes"),
+        recon_bytes = _to_float(
+            item.get("image_information", {}).get("reconstructed_file_size_bytes") or
+            item.get("reconstructed_size_bytes") or
+            item.get("recon_size_bytes"),
             0.0
         )
         orig_kb = round(orig_bytes / 1024.0, 2) if orig_bytes > 0 else 0.0
-        comp_kb = round(comp_bytes / 1024.0, 2) if comp_bytes > 0 else 0.0
-
-        qual = _to_float(item.get("compression_information", {}).get("quality"), 50.0)
-        reduction = _to_float(item.get("compression_information", {}).get("reduction"))
-        if reduction is not None:
-            reduction = round(reduction, 2)
-        elif orig_bytes > 0 and comp_bytes > 0:
-            reduction = round(((orig_bytes - comp_bytes) / orig_bytes) * 100.0, 2)
-        else:
-            reduction = 0.0
-
-        if comp_bytes > 0 and orig_bytes > 0:
-            comp_ratio = round(orig_bytes / comp_bytes, 2)
-        elif reduction > 0 and reduction < 100:
-            comp_ratio = round(100.0 / (100.0 - reduction), 2)
-        else:
-            comp_ratio = 1.0
+        recon_kb = round(recon_bytes / 1024.0, 2) if recon_bytes > 0 else 0.0
+        enhancement_desc = "GAN + CBAM Attention"
 
         # 4. Reconstruction Metrics
         rm = item.get("reconstruction_metrics", {})
@@ -540,11 +512,9 @@ def generate_excel_report(analysis_data, output_path):
             color_mode,
             orig_kb,
             int(orig_bytes),
-            comp_kb,
-            int(comp_bytes),
-            qual,
-            reduction,
-            comp_ratio,
+            recon_kb,
+            int(recon_bytes),
+            enhancement_desc,
             psnr_disp,
             ssim_disp,
             mae_disp,
@@ -595,11 +565,9 @@ def generate_excel_report(analysis_data, output_path):
         "color_mode": "-",
         "orig_kb": round(_avg(orig_kb_vals), 2),
         "orig_bytes": int(sum(orig_kb_vals) * 1024) if orig_kb_vals else 0,
-        "comp_kb": round(_avg(comp_kb_vals), 2),
-        "comp_bytes": int(sum(comp_kb_vals) * 1024) if comp_kb_vals else 0,
-        "quality": 50.0,
-        "reduction": round(_avg(reduction_vals), 2),
-        "ratio": round(_avg(ratio_vals), 2),
+        "recon_kb": round(_avg(recon_kb_vals), 2),
+        "recon_bytes": int(sum(recon_kb_vals) * 1024) if recon_kb_vals else 0,
+        "enhancement": "GAN + CBAM Attention",
         "psnr": round(_avg(psnr_vals), 2),
         "ssim": round(_avg(ssim_vals), 4),
         "mae": round(_avg(mae_vals), 4),

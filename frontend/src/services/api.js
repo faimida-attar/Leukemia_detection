@@ -26,15 +26,6 @@ export const preprocessImageApi = async (formData) => {
   return response.json();
 };
 
-export const compressImageApi = async (formData) => {
-  const response = await fetch(`${BASE_URL}/compress`, {
-    method: 'POST',
-    body: formData,
-  });
-  if (!response.ok) throw new Error('Compression failed');
-  return response.json();
-};
-
 export const reconstructImageApi = async (formData) => {
   const response = await fetch(`${BASE_URL}/reconstruct`, {
     method: 'POST',

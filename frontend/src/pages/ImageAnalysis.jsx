@@ -18,9 +18,6 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
   // Track processed images state array dynamically
   const [processedImages, setProcessedImages] = useState([]);
 
-  // Compression slider state (10% to 90%)
-  const [compressionQuality, setCompressionQuality] = useState(50);
-
   // Pipeline processing state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -60,11 +57,15 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
       const invalidKeywords = ['doc', 'pdf', 'text', 'screenshot', 'selfie', 'paper', 'nature', 'landscape', 'cat', 'dog', 'invalid'];
       const isInvalidKeyword = invalidKeywords.some(kw => fname.includes(kw));
 
+      const formattedSize = file.size < 1024 * 1024
+        ? `${(file.size / 1024).toFixed(1)} KB`
+        : `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+
       return {
         file,
         id: Math.random().toString(36).substring(2, 9) + Date.now(),
         name: file.name,
-        size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+        size: formattedSize,
         previewUrl: URL.createObjectURL(file),
         isValid: isInvalidKeyword ? false : true
       };
@@ -78,10 +79,11 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
     newFileItems.forEach(async (item) => {
       try {
         const formData = new FormData();
+        formData.append('image', item.file);
         const valRes = await validateImageApi(formData);
-        const isValid = valRes?.is_valid !== false && valRes?.status !== 'Invalid Image';
+        const isValid = valRes?.is_valid === true && !valRes?.status?.toLowerCase().includes('invalid');
         setSelectedFilesList((prev) =>
-          prev.map((f) => (f.id === item.id ? { ...f, isValid } : f))
+          prev.map((f) => (f.id === item.id ? { ...f, isValid, validationReason: valRes?.reason } : f))
         );
       } catch (err) {
         // preserve current status
@@ -151,7 +153,6 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
 
       const formData = new FormData();
       formData.append('image', file);
-      formData.append('quality', compressionQuality);
 
       let resultData;
       resultData = await analyzeCompletePipelineApi(formData);

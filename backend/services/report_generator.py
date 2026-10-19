@@ -88,8 +88,16 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         analysis_results.get('image_information', {}).get('dimensions') or
         'N/A'
     )
-    qual = analysis_results.get('compression_information', {}).get('quality', 50)
-    red = analysis_results.get('compression_information', {}).get('reduction', 0)
+    orig_sz = (
+        analysis_results.get('image_information', {}).get('original_file_size_formatted') or
+        analysis_results.get('original_size_formatted') or
+        'N/A'
+    )
+    recon_sz = (
+        analysis_results.get('image_information', {}).get('reconstructed_file_size_formatted') or
+        analysis_results.get('reconstructed_size_formatted') or
+        'N/A'
+    )
     v_stat = analysis_results.get('validation_status') or ('Valid' if analysis_results.get('is_valid') is not False else 'Invalid')
 
     # General Information Table
@@ -98,8 +106,8 @@ def generate_pdf_report(analysis_results, output_pdf_path):
          Paragraph("<b>Validation Status:</b>", normal_style), Paragraph(f"<font color='green'><b>{v_stat}</b></font>", normal_style)],
         [Paragraph("<b>File Name:</b>", normal_style), Paragraph(str(fname), normal_style),
          Paragraph("<b>Dimensions:</b>", normal_style), Paragraph(str(dims), normal_style)],
-        [Paragraph("<b>Compression Level:</b>", normal_style), Paragraph(f"{qual}%", normal_style),
-         Paragraph("<b>Size Reduction:</b>", normal_style), Paragraph(f"{red}%", normal_style)],
+        [Paragraph("<b>Original Size:</b>", normal_style), Paragraph(str(orig_sz), normal_style),
+         Paragraph("<b>Reconstructed Size:</b>", normal_style), Paragraph(str(recon_sz), normal_style)],
     ]
     info_table = Table(info_data, colWidths=[110, 160, 120, 150])
     info_table.setStyle(TableStyle([

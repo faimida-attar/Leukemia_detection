@@ -9,7 +9,6 @@ from models.cnn.resnet_classifier import LeukemiaResNet50, LeukemiaClassifier
 from models.cnn.densenet_classifier import DenseNet121Classifier
 from models.cnn.hybrid_classifier import LeukemiaHybridResNetDenseNet, HybridLeukemiaClassifier
 from models.gan.generator import GANCBAMGenerator
-from services.compression import compress_image
 from services.metrics import calculate_reconstruction_metrics, compute_multiclass_metrics_from_eval
 
 BASE_DIR = os.path.dirname(__file__)
@@ -207,9 +206,8 @@ def run_model_evaluation():
         exp1_pred.append(exp1_res["prediction"])
         exp1_probs.append([exp1_res["probabilities"].get(c, 0.0) / 100.0 for c in CLASS_NAMES])
 
-        # Exp 2: Compressed (50% quality) -> ResNet50
-        comp_res = compress_image(orig_pil, quality_percentage=50)
-        comp_pil = comp_res["compressed_image"]
+        # Exp 2: Baseline -> ResNet50
+        comp_pil = orig_pil
         m_comp = calculate_reconstruction_metrics(orig_pil, comp_pil)
         exp2_psnr_list.append(m_comp["psnr"])
         exp2_ssim_list.append(m_comp["ssim"])
