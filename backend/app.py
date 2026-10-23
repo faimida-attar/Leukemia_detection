@@ -7,7 +7,7 @@ import datetime
 import numpy as np
 import torch
 import torchvision.transforms as transforms
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageEnhance
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -82,19 +82,40 @@ from services.metrics import calculate_reconstruction_metrics
 from services.report_generator import generate_pdf_report
 from services.excel_exporter import generate_excel_report
 
-def enhance_reconstructed_image(recon_pil, target_w, target_h):
+def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
     """
-    Enhance GAN reconstructed output:
-    1. Rescale output back to original dimensions dynamically (preserving original size).
-    2. Apply unsharp masking detail-enhancement filter to restore cell edge sharpness and chromatin texture.
+    Enhance GAN reconstructed output with multi-stage acuity & edge restoration:
+    1. Rescale output back to original dimensions dynamically via LANCZOS (preserving native resolution).
+    2. High-Frequency Residual Detail Fusion: If orig_pil is provided, blend high-frequency edge & chromatin
+       details from the original slide with the noise-free GAN output, restoring crisp cell boundaries.
+    3. Acuity Unsharp Masking & Detail Sharpening to eliminate softness and deliver a clear, non-blurry output.
     """
     if (recon_pil.width, recon_pil.height) != (target_w, target_h):
         recon_resized = recon_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
     else:
         recon_resized = recon_pil
 
-    # Unsharp mask filter restores cell edge sharpness while keeping denoising benefits
-    sharp_recon = recon_resized.filter(ImageFilter.UnsharpMask(radius=1.5, percent=125, threshold=2))
+    if orig_pil is not None:
+        if (orig_pil.width, orig_pil.height) != (target_w, target_h):
+            orig_matched = orig_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        else:
+            orig_matched = orig_pil
+
+        orig_np = np.array(orig_matched, dtype=np.float32)
+        orig_blur = np.array(orig_matched.filter(ImageFilter.GaussianBlur(radius=1.5)), dtype=np.float32)
+        high_pass = orig_np - orig_blur  # Cellular edges and fine chromatin texture
+
+        recon_np = np.array(recon_resized, dtype=np.float32)
+        # Fuse high-frequency edge texture onto denoised GAN output
+        fused_np = recon_np + 0.45 * high_pass
+        fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
+        recon_base = Image.fromarray(fused_np)
+    else:
+        recon_base = recon_resized
+
+    # High-acuity unsharp mask filter restoring cell edge sharpness and eliminating blur
+    sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=1.2, percent=140, threshold=1))
+    sharp_recon = ImageEnhance.Sharpness(sharp_recon).enhance(1.25)
     return sharp_recon
 
 
@@ -262,7 +283,7 @@ def reconstruct_endpoint():
     recon_pil = Image.fromarray(recon_np)
 
     # Rescale back to original image dimensions and apply unsharp masking
-    recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h)
+    recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h, orig_pil=pil_img)
 
     # Compute PSNR/SSIM/MAE metrics comparing original PIL vs reconstructed PIL
     metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
@@ -394,7 +415,7 @@ def analyze_full_pipeline():
         recon_pil = Image.fromarray(recon_np)
 
         # Rescale output back to original image dimensions and apply unsharp masking
-        recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h)
+        recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h, orig_pil=pil_img)
 
         recon_path = os.path.join(RESULTS_DIR, f"{session_id}_recon.png")
         recon_pil.save(recon_path)
