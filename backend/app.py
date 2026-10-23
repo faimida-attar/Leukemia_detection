@@ -84,11 +84,13 @@ from services.excel_exporter import generate_excel_report
 
 def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
     """
-    Enhance GAN reconstructed output with multi-stage acuity & edge restoration:
+    Enhance GAN reconstructed output with adaptive multi-scale acuity & edge restoration:
     1. Rescale output back to original dimensions dynamically via LANCZOS (preserving native resolution).
-    2. High-Frequency Residual Detail Fusion: If orig_pil is provided, blend high-frequency edge & chromatin
-       details from the original slide with the noise-free GAN output, restoring crisp cell boundaries.
-    3. Acuity Unsharp Masking & Detail Sharpening to eliminate softness and deliver a clear, non-blurry output.
+    2. Dynamic High-Frequency Residual Detail Fusion: Scales optical blur kernel to match
+       actual slide resolution (e.g. 1.5px for 256px slides up to 4.5px for 4K slides).
+    3. Fuses high-frequency cellular boundaries, nuclear membrane edges, and chromatin texture
+       (0.92x restoration) onto the GAN-denoised base, eliminating blurriness across all resolutions.
+    4. Adaptive unsharp masking scaled to resolution for crystal-clear, non-blurry output.
     """
     if (recon_pil.width, recon_pil.height) != (target_w, target_h):
         recon_resized = recon_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
@@ -102,20 +104,29 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
             orig_matched = orig_pil
 
         orig_np = np.array(orig_matched, dtype=np.float32)
-        orig_blur = np.array(orig_matched.filter(ImageFilter.GaussianBlur(radius=1.5)), dtype=np.float32)
+        recon_np = np.array(recon_resized, dtype=np.float32)
+
+        # Scale optical kernel dynamically based on actual image resolution
+        max_dim = max(target_w, target_h)
+        scale = max(1.5, min(4.5, max_dim / 950.0))
+        k = int(2 * round(3 * scale) + 1)
+        if k % 2 == 0:
+            k += 1
+
+        orig_blur = cv2.GaussianBlur(orig_np, (k, k), scale)
         high_pass = orig_np - orig_blur  # Cellular edges and fine chromatin texture
 
-        recon_np = np.array(recon_resized, dtype=np.float32)
-        # Fuse high-frequency edge texture onto denoised GAN output
-        fused_np = recon_np + 0.45 * high_pass
+        # High-frequency edge texture fusion onto denoised GAN output (0.92x restoration)
+        fused_np = recon_np + 0.92 * high_pass
         fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
         recon_base = Image.fromarray(fused_np)
-    else:
-        recon_base = recon_resized
 
-    # High-acuity unsharp mask filter restoring cell edge sharpness and eliminating blur
-    sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=1.2, percent=140, threshold=1))
-    sharp_recon = ImageEnhance.Sharpness(sharp_recon).enhance(1.25)
+        # Adaptive unsharp mask scaled to image resolution
+        unsharp_rad = max(1.2, scale * 0.6)
+        sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=unsharp_rad, percent=125, threshold=1))
+    else:
+        sharp_recon = recon_resized.filter(ImageFilter.UnsharpMask(radius=1.8, percent=130, threshold=1))
+
     return sharp_recon
 
 
@@ -155,18 +166,24 @@ if os.path.exists(gan_ckpt):
         print(f"[GAN+CBAM] Could not load generator weights: {e}")
 
 # Helper functions
-def pil_to_base64(pil_img, format="JPEG"):
-    """Convert PIL image to optimized base64 string for fast web payload transmission."""
-    if pil_img.width > 1024 or pil_img.height > 1024:
-        ratio = min(1024 / pil_img.width, 1024 / pil_img.height)
-        new_size = (int(pil_img.width * ratio), int(pil_img.height * ratio))
-        pil_img = pil_img.resize(new_size, Image.Resampling.BILINEAR)
-
+def pil_to_base64(pil_img, format="PNG"):
+    """Convert PIL image to high-fidelity base64 string for web payload transmission without blur."""
     buffer = io.BytesIO()
-    save_format = "JPEG" if format.upper() in ["JPG", "JPEG"] else "PNG"
-    if save_format == "JPEG" and pil_img.mode != "RGB":
-        pil_img = pil_img.convert("RGB")
-    pil_img.save(buffer, format=save_format, quality=85)
+    # For web display, prevent browser lag on ultra-large images (> 2560px) while maintaining crisp Lanczos sharpness
+    if pil_img.width > 2560 or pil_img.height > 2560:
+        ratio = min(2560.0 / pil_img.width, 2560.0 / pil_img.height)
+        display_img = pil_img.resize((int(pil_img.width * ratio), int(pil_img.height * ratio)), Image.Resampling.LANCZOS)
+    else:
+        display_img = pil_img
+
+    save_format = "PNG" if format.upper() == "PNG" else "JPEG"
+    if save_format == "JPEG":
+        if display_img.mode != "RGB":
+            display_img = display_img.convert("RGB")
+        display_img.save(buffer, format="JPEG", quality=95)
+    else:
+        display_img.save(buffer, format="PNG", optimize=True)
+
     buffer.seek(0)
     img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
     return f"data:image/{save_format.lower()};base64,{img_str}"
