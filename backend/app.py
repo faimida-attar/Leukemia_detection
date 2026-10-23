@@ -404,12 +404,12 @@ def analyze_full_pipeline():
         # Step 3: Reconstruction Quality Metrics (PSNR, SSIM, MAE)
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
 
-        # Step 4: Leukemia Classification on the RECONSTRUCTED Enhanced Image (ResNet50, DenseNet121, and Hybrid)
+        # Step 4: Leukemia Classification (ResNet50, DenseNet121, and Hybrid Feature Fusion)
         with pipeline_lock:
             with torch.no_grad():
-                resnet_res = resnet_classifier.predict(recon_pil, filename=filename)
-                densenet_res = densenet_classifier.predict(recon_pil, filename=filename)
-                hybrid_res = hybrid_classifier.predict(recon_pil, filename=filename)
+                resnet_res = resnet_classifier.predict(pil_img, filename=filename)
+                densenet_res = densenet_classifier.predict(pil_img, filename=filename)
+                hybrid_res = hybrid_classifier.predict(pil_img, filename=filename)
 
             pred_res = hybrid_res
 
@@ -436,7 +436,7 @@ def analyze_full_pipeline():
                         transforms.ToTensor(),
                         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                     ])
-                    input_tensor = transform_resnet(recon_pil).unsqueeze(0)
+                    input_tensor = transform_resnet(pil_img).unsqueeze(0)
                     heatmap, target_idx = grad_cam_eval.generate_heatmap(input_tensor, target_class_idx=target_class_idx)
 
                     cv2_recon = cv2.cvtColor(np.array(recon_pil), cv2.COLOR_RGB2BGR)
