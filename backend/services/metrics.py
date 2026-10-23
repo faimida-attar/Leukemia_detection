@@ -10,9 +10,16 @@ def calculate_reconstruction_metrics(original_pil, reconstructed_pil):
     - SSIM (Structural Similarity Index, [0, 1], higher is better)
     - MAE (Mean Absolute Error, normalized [0, 1], lower is better)
     """
-    eval_dim = (512, 512)
-    orig_eval = original_pil.resize(eval_dim, Image.Resampling.BILINEAR)
-    recon_eval = reconstructed_pil.resize(eval_dim, Image.Resampling.BILINEAR)
+    # Maintain high-fidelity resolution for accurate structural similarity and PSNR calculation
+    if original_pil.size == reconstructed_pil.size and max(original_pil.width, original_pil.height) <= 2048:
+        orig_eval = original_pil
+        recon_eval = reconstructed_pil
+    else:
+        max_dim = 1440
+        ratio = min(max_dim / original_pil.width, max_dim / original_pil.height)
+        eval_dim = (int(original_pil.width * ratio), int(original_pil.height * ratio))
+        orig_eval = original_pil.resize(eval_dim, Image.Resampling.LANCZOS)
+        recon_eval = reconstructed_pil.resize(eval_dim, Image.Resampling.LANCZOS)
 
     orig_arr = np.array(orig_eval.convert('RGB'), dtype=np.float32)
     recon_arr = np.array(recon_eval.convert('RGB'), dtype=np.float32)

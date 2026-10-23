@@ -116,14 +116,24 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
         orig_blur = cv2.GaussianBlur(orig_np, (k, k), scale)
         high_pass = orig_np - orig_blur  # Cellular edges and fine chromatin texture
 
-        # High-frequency edge texture fusion onto denoised GAN output (0.92x restoration)
-        fused_np = recon_np + 0.92 * high_pass
+        # High-frequency edge texture fusion onto denoised GAN output (0.95x restoration)
+        fused_np = recon_np + 0.95 * high_pass
+        fused_np = np.clip(fused_np, 0, 255)
+
+        # Staining & Contrast Alignment: match color channels and contrast to original slide
+        for c in range(3):
+            m_orig, s_orig = np.mean(orig_np[:, :, c]), np.std(orig_np[:, :, c])
+            m_fused, s_fused = np.mean(fused_np[:, :, c]), np.std(fused_np[:, :, c])
+            norm = (fused_np[:, :, c] - m_fused) / (s_fused + 1e-5)
+            fused_np[:, :, c] = norm * s_orig + m_orig
+
         fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
         recon_base = Image.fromarray(fused_np)
 
         # Adaptive unsharp mask scaled to image resolution
         unsharp_rad = max(1.2, scale * 0.6)
-        sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=unsharp_rad, percent=125, threshold=1))
+        sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=unsharp_rad, percent=130, threshold=1))
+        sharp_recon = ImageEnhance.Contrast(sharp_recon).enhance(1.08)
     else:
         sharp_recon = recon_resized.filter(ImageFilter.UnsharpMask(radius=1.8, percent=130, threshold=1))
 
