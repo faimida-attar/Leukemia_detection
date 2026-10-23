@@ -7,7 +7,7 @@ import datetime
 import numpy as np
 import torch
 import torchvision.transforms as transforms
-from PIL import Image
+from PIL import Image, ImageFilter
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -81,6 +81,22 @@ from models.gradcam.gradcam_eval import GradCAM
 from services.metrics import calculate_reconstruction_metrics
 from services.report_generator import generate_pdf_report
 from services.excel_exporter import generate_excel_report
+
+def enhance_reconstructed_image(recon_pil, target_w, target_h):
+    """
+    Enhance GAN reconstructed output:
+    1. Rescale output back to original dimensions dynamically (preserving original size).
+    2. Apply unsharp masking detail-enhancement filter to restore cell edge sharpness and chromatin texture.
+    """
+    if (recon_pil.width, recon_pil.height) != (target_w, target_h):
+        recon_resized = recon_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    else:
+        recon_resized = recon_pil
+
+    # Unsharp mask filter restores cell edge sharpness while keeping denoising benefits
+    sharp_recon = recon_resized.filter(ImageFilter.UnsharpMask(radius=1.5, percent=125, threshold=2))
+    return sharp_recon
+
 
 def format_file_size(num_bytes):
     """Format file size in bytes to human-readable string (KB or MB) without hardcoding."""
@@ -231,6 +247,7 @@ def reconstruct_endpoint():
 
     file = request.files['image']
     pil_img = Image.open(file.stream).convert('RGB')
+    orig_w, orig_h = pil_img.size
     
     # Transform to tensor for GAN Generator
     transform_to_t = transforms.ToTensor()
@@ -243,6 +260,9 @@ def reconstruct_endpoint():
     recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
     recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
     recon_pil = Image.fromarray(recon_np)
+
+    # Rescale back to original image dimensions and apply unsharp masking
+    recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h)
 
     # Compute PSNR/SSIM/MAE metrics comparing original PIL vs reconstructed PIL
     metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
@@ -372,6 +392,10 @@ def analyze_full_pipeline():
         recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
         recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
         recon_pil = Image.fromarray(recon_np)
+
+        # Rescale output back to original image dimensions and apply unsharp masking
+        recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h)
+
         recon_path = os.path.join(RESULTS_DIR, f"{session_id}_recon.png")
         recon_pil.save(recon_path)
         recon_file_size_bytes = os.path.getsize(recon_path)

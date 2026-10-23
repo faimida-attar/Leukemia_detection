@@ -1,7 +1,7 @@
 import os
 import re
-import datetime
-from openpyxl import Workbook
+from PIL import Image
+import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -11,7 +11,8 @@ DISEASE_FULL_NAMES = {
     "AML": "Acute Myeloid Leukemia",
     "CLL": "Chronic Lymphocytic Leukemia",
     "CML": "Chronic Myeloid Leukemia",
-    "Normal": "Normal Non-Leukemic Smear"
+    "Normal": "Normal Non-Leukemic Smear",
+    "NORMAL": "Normal Non-Leukemic Smear"
 }
 
 
@@ -33,20 +34,41 @@ def _to_float(v, default=None):
     if v is None:
         return default
     try:
-        val = float(v)
-        return val
+        return float(v)
     except (ValueError, TypeError):
         return default
 
 
+def _clean_conf(c_val):
+    """Ensure confidence is expressed on a 0-100 scale."""
+    v = _to_float(c_val)
+    if v is None:
+        return None
+    if 0.0 < v <= 1.0:
+        return round(float(v * 100.0), 1)
+    return round(float(v), 1)
+
+
 def generate_excel_report(analysis_data, output_path):
     """
-    Generate a professionally formatted, multi-sheet .xlsx Excel report for multiple-image leukemia analysis.
-
-    Sheets:
-    1. 'Summary & Statistics' - Aggregate batch metrics, leukemia subtype distribution, and clinical benchmark metrics.
-    2. 'Slide Analysis Master Data' - Granular per-slide table with image properties, compression details,
-       reconstruction metrics (PSNR, SSIM, MAE), model predictions, confidence scores, and class probabilities.
+    Generate a research evaluation Excel (.xlsx) report matching the exact visual specification:
+    - Title banner at Row 1
+    - Table header at Row 4 with Navy fill (#1E3A8A) and white bold text
+    - 12 Columns:
+        1. Slide #
+        2. Filename
+        3. Validation
+        4. Dimensions
+        5. Orig Size (KB)
+        6. Recon Size (KB)
+        7. PSNR (dB)
+        8. SSIM
+        9. MAE
+        10. Hybrid Pred
+        11. Hybrid Conf (%)
+        12. Full Disease Subtype
+    - Dynamic data rows with proper numerical formatting
+    - AVERAGE / OVERALL SUMMARY row with soft ice-blue fill (#EEF5FE) and average metrics
     """
     # -------------------------------------------------------------------------
     # 1. Normalize Input Data
@@ -63,362 +85,112 @@ def generate_excel_report(analysis_data, output_path):
     else:
         items = []
 
-    # Filter out empty or null items
+    # Filter out empty or non-dict items
     items = [it for it in items if isinstance(it, dict)]
 
-    wb = Workbook()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Research Evaluation Report"
+
+    # Explicitly show sheet grid lines
+    ws.views.sheetView[0].showGridLines = True
 
     # -------------------------------------------------------------------------
-    # 2. Typography, Colors & Border Design System
+    # 2. Typography & Color Palette
     # -------------------------------------------------------------------------
-    font_main = "Segoe UI"
+    font_family = "Segoe UI"
+    title_font = Font(name=font_family, size=11, bold=True, color="000000")
+    header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
+    data_font = Font(name=font_family, size=9.5, color="000000")
+    summary_font = Font(name=font_family, size=9.5, bold=True, color="000000")
 
-    title_font = Font(name=font_main, size=14, bold=True, color="FFFFFF")
-    subtitle_font = Font(name=font_main, size=9.5, italic=True, color="E2E8F0")
-    section_font = Font(name=font_main, size=11, bold=True, color="0F172A")
-    header_font = Font(name=font_main, size=10, bold=True, color="FFFFFF")
-    sub_header_font = Font(name=font_main, size=10, bold=True, color="0369A1")
-    data_font = Font(name=font_main, size=9, color="1E293B")
-    data_bold_font = Font(name=font_main, size=9, bold=True, color="1E293B")
-    data_accent_font = Font(name=font_main, size=9, bold=True, color="1E40AF")
-    small_desc_font = Font(name=font_main, size=8.5, color="475569")
-    summary_label_font = Font(name=font_main, size=9.5, bold=True, color="1E3A8A")
+    # Header Fill: Exact Navy Blue (#1E3A8A)
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    # Summary Fill: Soft Ice Blue (#EEF5FE)
+    summary_fill = PatternFill(start_color="EEF5FE", end_color="EEF5FE", fill_type="solid")
 
-    fill_brand = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")       # Dark Navy (#1E3A8A)
-    fill_header = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")      # Navy Blue (#1E40AF)
-    fill_sub_hdr = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")    # Sky Blue light (#E0F2FE)
-    fill_metric_hdr = PatternFill(start_color="0284C7", end_color="0284C7", fill_type="solid") # Sky Accent (#0284C7)
-    fill_zebra = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")      # Slate zebra (#F8FAFC)
-    fill_total = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")      # Light Slate total (#F1F5F9)
+    # Alignments
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
 
-    border_thin = Border(
-        left=Side(style='thin', color='CBD5E1'),
-        right=Side(style='thin', color='CBD5E1'),
-        top=Side(style='thin', color='CBD5E1'),
-        bottom=Side(style='thin', color='CBD5E1')
+    # Borders
+    border_cell = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
     )
-    border_double = Border(
-        left=Side(style='thin', color='CBD5E1'),
-        right=Side(style='thin', color='CBD5E1'),
-        top=Side(style='thin', color='CBD5E1'),
-        bottom=Side(style='double', color='1E3A8A')
+    border_summary = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='B0C4DE'),
+        bottom=Side(style='thin', color='B0C4DE')
     )
 
-    align_center = Alignment(horizontal='center', vertical='center', wrap_text=False)
-    align_left = Alignment(horizontal='left', vertical='center', wrap_text=False)
-    align_right = Alignment(horizontal='right', vertical='center', wrap_text=False)
+    # -------------------------------------------------------------------------
+    # 3. Title Banner (Row 1) & Blank Spacers (Rows 2, 3)
+    # -------------------------------------------------------------------------
+    ws["A1"] = "LEUKEMIA DETECTION & RECONSTRUCTION - RESEARCH EVALUATION REPORT"
+    ws["A1"].font = title_font
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 8
+    ws.row_dimensions[3].height = 8
 
     # -------------------------------------------------------------------------
-    # 3. Compute Aggregates & Statistics
+    # 4. Table Headers (Row 4)
     # -------------------------------------------------------------------------
-    total_count = len(items)
-    completed_items = [it for it in items if it.get("status") != "processing"]
-    valid_items = [it for it in completed_items if it.get("is_valid") is not False]
-    invalid_count = len(completed_items) - len(valid_items)
-
-    class_counts = {"ALL": 0, "AML": 0, "CLL": 0, "CML": 0, "Normal": 0}
-    psnr_vals = []
-    ssim_vals = []
-    mae_vals = []
-    orig_kb_vals = []
-    recon_kb_vals = []
-    hybrid_conf_vals = []
-    resnet_conf_vals = []
-    densenet_conf_vals = []
-
-    for it in completed_items:
-        # Prediction
-        pred = (
-            it.get("hybrid_pred") or
-            it.get("hybrid", {}).get("prediction") or
-            it.get("classification", {}).get("prediction") or
-            it.get("resnet50_pred") or
-            it.get("resnet50", {}).get("prediction")
-        )
-        if pred in class_counts:
-            class_counts[pred] += 1
-
-        # Reconstruction metrics
-        rm = it.get("reconstruction_metrics", {})
-        p = _to_float(rm.get("psnr_db") if rm.get("psnr_db") is not None else rm.get("psnr"))
-        s = _to_float(rm.get("ssim"))
-        m = _to_float(rm.get("mae"))
-
-        if p is not None: psnr_vals.append(p)
-        if s is not None: ssim_vals.append(s)
-        if m is not None: mae_vals.append(m)
-
-        # Sizes
-        orig_b = _to_float(
-            it.get("image_information", {}).get("original_file_size_bytes") or
-            it.get("original_size_bytes") or
-            it.get("file_size_bytes"),
-            0.0
-        )
-        recon_b = _to_float(
-            it.get("image_information", {}).get("reconstructed_file_size_bytes") or
-            it.get("reconstructed_size_bytes") or
-            it.get("recon_size_bytes"),
-            0.0
-        )
-        if orig_b > 0: orig_kb_vals.append(orig_b / 1024.0)
-        if recon_b > 0: recon_kb_vals.append(recon_b / 1024.0)
-
-        # Confidence scores
-        def _get_conf(val):
-            v = _to_float(val)
-            if v is None:
-                return None
-            return float(v * 100.0 if v <= 1.0 and v > 0 else v)
-
-        h_c = _get_conf(it.get("hybrid_conf") or it.get("hybrid", {}).get("confidence") or it.get("classification", {}).get("confidence"))
-        r_c = _get_conf(it.get("resnet50_conf") or it.get("resnet50", {}).get("confidence"))
-        d_c = _get_conf(it.get("densenet_conf") or it.get("densenet121", {}).get("confidence") or it.get("densenet", {}).get("confidence"))
-
-        if h_c is not None: hybrid_conf_vals.append(h_c)
-        if r_c is not None: resnet_conf_vals.append(r_c)
-        if d_c is not None: densenet_conf_vals.append(d_c)
-
-    def _avg(lst):
-        return sum(lst) / len(lst) if lst else 0.0
-
-    # =========================================================================
-    # SHEET 1: EXECUTIVE SUMMARY & STATISTICAL AGGREGATES
-    # =========================================================================
-    ws_summary = wb.active
-    ws_summary.title = "Summary & Statistics"
-    ws_summary.views.sheetView[0].showGridLines = True
-
-    # 1. Title Banner (Columns A to E)
-    ws_summary.merge_cells("A1:E1")
-    title_cell = ws_summary["A1"]
-    title_cell.value = "Leukemia Detection & Medical Image Reconstruction - Research Evaluation Report"
-    title_cell.font = title_font
-    title_cell.fill = fill_brand
-    title_cell.alignment = align_left
-    ws_summary.row_dimensions[1].height = 34
-
-    ws_summary.merge_cells("A2:E2")
-    sub_cell = ws_summary["A2"]
-    sub_cell.value = (
-        f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  "
-        "Framework: GAN + CBAM Quality Restoration & ResNet50 + DenseNet121 Hybrid Classification"
-    )
-    sub_cell.font = subtitle_font
-    sub_cell.fill = fill_brand
-    sub_cell.alignment = align_left
-    ws_summary.row_dimensions[2].height = 20
-
-    # Style banner border cells
-    for r in (1, 2):
-        for c in range(1, 6):
-            cell = ws_summary.cell(row=r, column=c)
-            cell.border = border_thin
-            cell.fill = fill_brand
-
-    # 2. Section 1: Batch Processing Overview (5 Columns: A to E)
-    ws_summary["A4"].value = "1. BATCH PROCESSING OVERVIEW"
-    ws_summary["A4"].font = section_font
-
-    kpi_headers = ["Total Processed Slides", "Valid Smear Slides", "Excluded / Invalid Slides", "Valid Processing Rate", "Mean PSNR (dB)"]
-    for col_idx, kh in enumerate(kpi_headers, start=1):
-        c = ws_summary.cell(row=5, column=col_idx, value=kh)
-        c.font = sub_header_font
-        c.fill = fill_sub_hdr
-        c.border = border_thin
-        c.alignment = align_center
-
-    valid_rate = (len(valid_items) / total_count * 100.0) if total_count > 0 else 0.0
-    mean_psnr_kpi = round(_avg(psnr_vals), 2)
-    kpi_values = [total_count, len(valid_items), invalid_count, f"{valid_rate:.1f}%", f"{mean_psnr_kpi:.2f} dB"]
-    for col_idx, kv in enumerate(kpi_values, start=1):
-        c = ws_summary.cell(row=6, column=col_idx, value=kv)
-        c.font = data_bold_font
-        c.border = border_thin
-        c.alignment = align_center
-    ws_summary.row_dimensions[5].height = 24
-    ws_summary.row_dimensions[6].height = 22
-
-    # 3. Section 2: Leukemia Subtype Distribution (5 Columns: A to E)
-    ws_summary["A8"].value = "2. LEUKEMIA SUBTYPE DISTRIBUTION"
-    ws_summary["A8"].font = section_font
-
-    dist_headers = ["Class Subtype", "Full Clinical Classification", "Case Count", "Distribution (%)", "Clinical Relevance"]
-    for col_idx, dh in enumerate(dist_headers, start=1):
-        c = ws_summary.cell(row=9, column=col_idx, value=dh)
-        c.font = header_font
-        c.fill = fill_header
-        c.border = border_thin
-        c.alignment = align_center
-    ws_summary.row_dimensions[9].height = 24
-
-    clin_notes = {
-        "ALL": "Acute Lymphoblastic Leukemia — predominantly lymphoblast proliferation",
-        "AML": "Acute Myeloid Leukemia — excessive myeloblast & myeloid lineage cells",
-        "CLL": "Chronic Lymphocytic Leukemia — mature-appearing monoclonal B-cell accumulation",
-        "CML": "Chronic Myeloid Leukemia — granulocytic lineage expansion & BCR-ABL1 marker",
-        "Normal": "Normal Non-Leukemic Blood Smear — physiological leukocyte morphology"
-    }
-
-    curr_row = 10
-    total_classified = sum(class_counts.values())
-    for cls_key in ["ALL", "AML", "CLL", "CML", "Normal"]:
-        cnt = class_counts[cls_key]
-        pct = (cnt / total_classified * 100.0) if total_classified > 0 else 0.0
-
-        row_vals = [
-            cls_key,
-            DISEASE_FULL_NAMES.get(cls_key, cls_key),
-            cnt,
-            round(pct, 2),
-            clin_notes.get(cls_key, "")
-        ]
-
-        for col_idx, val in enumerate(row_vals, start=1):
-            c = ws_summary.cell(row=curr_row, column=col_idx, value=val)
-            c.font = data_bold_font if col_idx in (1, 3) else data_font
-            c.border = border_thin
-            if col_idx in (1, 3):
-                c.alignment = align_center
-            elif col_idx == 4:
-                c.alignment = align_right
-                c.number_format = '0.00"%"'
-            else:
-                c.alignment = align_left
-        ws_summary.row_dimensions[curr_row].height = 20
-        curr_row += 1
-
-    # Total row for Distribution
-    tot_row = curr_row
-    ws_summary.cell(row=tot_row, column=1, value="TOTAL").font = data_bold_font
-    ws_summary.cell(row=tot_row, column=2, value="All Analyzed Diagnostic Classes").font = data_bold_font
-    ws_summary.cell(row=tot_row, column=3, value=total_classified).font = data_bold_font
-    ws_summary.cell(row=tot_row, column=4, value=100.0 if total_classified > 0 else 0.0).font = data_bold_font
-    ws_summary.cell(row=tot_row, column=4).number_format = '0.00"%"'
-    ws_summary.cell(row=tot_row, column=5, value="100% Cohort Coverage").font = small_desc_font
-    for col_idx in range(1, 6):
-        c = ws_summary.cell(row=tot_row, column=col_idx)
-        c.fill = fill_total
-        c.border = border_double
-        if col_idx in (1, 3): c.alignment = align_center
-        elif col_idx == 4: c.alignment = align_right
-        else: c.alignment = align_left
-    ws_summary.row_dimensions[tot_row].height = 22
-
-    # 4. Section 3: Aggregate Reconstruction & Model Performance Metrics (5 Columns: A to E)
-    curr_row = tot_row + 2
-    ws_summary.cell(row=curr_row, column=1, value="3. AGGREGATE RECONSTRUCTION & MODEL PERFORMANCE METRICS").font = section_font
-    curr_row += 1
-
-    metric_table_headers = ["Metric Name", "Mean / Aggregate Value", "Unit", "Benchmark / Threshold", "Clinical & Technical Interpretation"]
-    for col_idx, mth in enumerate(metric_table_headers, start=1):
-        c = ws_summary.cell(row=curr_row, column=col_idx, value=mth)
-        c.font = header_font
-        c.fill = fill_metric_hdr
-        c.border = border_thin
-        c.alignment = align_center
-    ws_summary.row_dimensions[curr_row].height = 24
-    curr_row += 1
-
-    metrics_rows = [
-        ("Peak Signal-to-Noise Ratio (PSNR)", round(_avg(psnr_vals), 2), "dB", "> 28.0 dB", "Higher indicates superior pixel restoration fidelity (>28 dB is research-grade)"),
-        ("Structural Similarity Index (SSIM)", round(_avg(ssim_vals), 4), "Index (0 to 1)", "> 0.8500", "Closer to 1.0 preserves cell boundaries, chromatin texture, and cytoplasm"),
-        ("Mean Absolute Error (MAE)", round(_avg(mae_vals), 4), "Pixel Error", "< 0.0800", "Lower indicates minimal absolute pixel deviation after CBAM GAN attention"),
-        ("Hybrid Ensemble Mean Confidence", round(_avg(hybrid_conf_vals), 2), "%", "> 90.0 %", "Average diagnostic certainty combining ResNet50 and DenseNet121 backbones"),
-        ("ResNet50 Standalone Mean Confidence", round(_avg(resnet_conf_vals), 2), "%", "> 85.0 %", "Average certainty score from the standalone ResNet50 classifier"),
-        ("DenseNet121 Standalone Mean Confidence", round(_avg(densenet_conf_vals), 2), "%", "> 85.0 %", "Average certainty score from the standalone DenseNet121 classifier"),
-    ]
-
-    for m_name, m_val, m_unit, m_bench, m_desc in metrics_rows:
-        r_c1 = ws_summary.cell(row=curr_row, column=1, value=m_name)
-        r_c2 = ws_summary.cell(row=curr_row, column=2, value=m_val)
-        r_c3 = ws_summary.cell(row=curr_row, column=3, value=m_unit)
-        r_c4 = ws_summary.cell(row=curr_row, column=4, value=m_bench)
-        r_c5 = ws_summary.cell(row=curr_row, column=5, value=m_desc)
-
-        r_c1.font = data_bold_font
-        r_c2.font = data_accent_font
-        r_c3.font = data_font
-        r_c4.font = small_desc_font
-        r_c5.font = small_desc_font
-
-        r_c1.alignment = align_left
-        r_c2.alignment = align_right
-        r_c3.alignment = align_center
-        r_c4.alignment = align_center
-        r_c5.alignment = align_left
-
-        for c_idx in range(1, 6):
-            ws_summary.cell(row=curr_row, column=c_idx).border = border_thin
-            if curr_row % 2 == 1:
-                ws_summary.cell(row=curr_row, column=c_idx).fill = fill_zebra
-
-        ws_summary.row_dimensions[curr_row].height = 20
-        curr_row += 1
-
-
-    # =========================================================================
-    # SHEET 2: MASTER IMAGE ANALYSIS DATA TABLE
-    # =========================================================================
-    ws_data = wb.create_sheet(title="Slide Analysis Master Data")
-    ws_data.views.sheetView[0].showGridLines = True
-    ws_data.freeze_panes = "C2"  # Freeze headers (row 1) and Slide # + Filename (cols A-B)
-
-    # Master Table Column Definitions (30 Complete Attributes)
     columns = [
-        {"id": "index", "name": "Slide #", "min_width": 10, "align": align_center},
-        {"id": "filename", "name": "Filename", "min_width": 32, "align": align_left},
-        {"id": "validation", "name": "Validation Status", "min_width": 18, "align": align_center},
-        {"id": "width", "name": "Width (px)", "min_width": 14, "align": align_right, "fmt": "#,##0"},
-        {"id": "height", "name": "Height (px)", "min_width": 14, "align": align_right, "fmt": "#,##0"},
-        {"id": "format", "name": "Image Format", "min_width": 15, "align": align_center},
-        {"id": "color_mode", "name": "Color Mode", "min_width": 14, "align": align_center},
-        {"id": "orig_kb", "name": "Original Size (KB)", "min_width": 18, "align": align_right, "fmt": "#,##0.00"},
-        {"id": "orig_bytes", "name": "Original Size (Bytes)", "min_width": 20, "align": align_right, "fmt": "#,##0"},
-        {"id": "recon_kb", "name": "Reconstructed Size (KB)", "min_width": 22, "align": align_right, "fmt": "#,##0.00"},
-        {"id": "recon_bytes", "name": "Reconstructed Size (Bytes)", "min_width": 24, "align": align_right, "fmt": "#,##0"},
-        {"id": "enhancement", "name": "Enhancement Model", "min_width": 22, "align": align_center},
-        {"id": "psnr", "name": "PSNR (dB)", "min_width": 14, "align": align_right, "fmt": "0.00"},
-        {"id": "ssim", "name": "SSIM (0 to 1)", "min_width": 16, "align": align_right, "fmt": "0.0000"},
-        {"id": "mae", "name": "MAE (Pixel Error)", "min_width": 18, "align": align_right, "fmt": "0.0000"},
-        {"id": "pred_class", "name": "Predicted Leukemia Class", "min_width": 24, "align": align_center},
-        {"id": "full_diagnosis", "name": "Full Clinical Diagnosis", "min_width": 34, "align": align_left},
-        {"id": "confidence", "name": "Hybrid Confidence (%)", "min_width": 22, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "resnet_pred", "name": "ResNet50 Prediction", "min_width": 20, "align": align_center},
-        {"id": "resnet_conf", "name": "ResNet50 Confidence (%)", "min_width": 24, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "densenet_pred", "name": "DenseNet121 Prediction", "min_width": 22, "align": align_center},
-        {"id": "densenet_conf", "name": "DenseNet121 Confidence (%)", "min_width": 26, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "prob_all", "name": "ALL Prob (%)", "min_width": 15, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "prob_aml", "name": "AML Prob (%)", "min_width": 15, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "prob_cll", "name": "CLL Prob (%)", "min_width": 15, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "prob_cml", "name": "CML Prob (%)", "min_width": 15, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "prob_normal", "name": "Normal Prob (%)", "min_width": 16, "align": align_right, "fmt": '0.00"%"'},
-        {"id": "session_id", "name": "Session ID", "min_width": 26, "align": align_left}
+        {"header": "Slide #", "align": align_center, "width": 10},
+        {"header": "Filename", "align": align_left, "width": 66},
+        {"header": "Validation", "align": align_center, "width": 13},
+        {"header": "Dimensions", "align": align_center, "width": 15},
+        {"header": "Orig Size (KB)", "align": align_right, "width": 16, "fmt": "#,##0.0"},
+        {"header": "Recon Size (KB)", "align": align_right, "width": 16, "fmt": "#,##0.0"},
+        {"header": "PSNR (dB)", "align": align_right, "width": 13, "fmt": "0.00"},
+        {"header": "SSIM", "align": align_right, "width": 13, "fmt": "0.0000"},
+        {"header": "MAE", "align": align_right, "width": 13, "fmt": "0.0000"},
+        {"header": "Hybrid Pred", "align": align_center, "width": 14},
+        {"header": "Hybrid Conf (%)", "align": align_right, "width": 16, "fmt": '0.0"%"'},
+        {"header": "Full Disease Subtype", "align": align_left, "width": 32}
     ]
 
-    # Write Master Table Headers
-    ws_data.row_dimensions[1].height = 28
-    for col_idx, col in enumerate(columns, start=1):
-        cell = ws_data.cell(row=1, column=col_idx, value=col["name"])
+    header_row = 4
+    ws.row_dimensions[header_row].height = 26
+    for col_idx, col_info in enumerate(columns, start=1):
+        cell = ws.cell(row=header_row, column=col_idx, value=col_info["header"])
         cell.font = header_font
-        cell.fill = fill_header
-        cell.border = border_thin
+        cell.fill = header_fill
         cell.alignment = align_center
+        cell.border = border_cell
 
-    # Populate Granular Data Rows
-    row_num = 2
+    # -------------------------------------------------------------------------
+    # 5. Data Rows (Starting Row 5)
+    # -------------------------------------------------------------------------
+    valid_psnrs = []
+    valid_ssims = []
+    valid_maes = []
+
+    current_row = 5
+
     for idx, item in enumerate(items, start=1):
-        # 1. Filename & Validation
+        # 1. Filename
         fname = (
             item.get("image_information", {}).get("filename") or
             item.get("selectedFileName") or
             item.get("filename") or
             f"Slide_{idx}.jpg"
         )
-        is_val = item.get("is_valid") is not False
-        val_status = item.get("validation_status") or ("Valid Blood Smear" if is_val else "Invalid Slide")
 
-        # 2. Dimensions & Image Info
+        # 2. Validation Status
+        is_val = item.get("is_valid")
+        if is_val is False:
+            val_text = "Invalid"
+        else:
+            val_text = "Valid"
+
+        # 3. Dynamic Dimensions
         dim_str = (
             item.get("image_information", {}).get("original_dimensions") or
             item.get("image_information", {}).get("dimensions") or
@@ -431,210 +203,188 @@ def generate_excel_report(analysis_data, output_path):
         if not h and item.get("image_information", {}).get("height"):
             h = _to_float(item.get("image_information", {}).get("height"))
 
-        fmt = item.get("image_information", {}).get("format") or "JPEG"
-        color_mode = item.get("image_information", {}).get("color_mode") or "RGB"
+        # If dimensions not pre-saved, inspect actual image file on disk if available
+        if (not w or not h):
+            orig_path = (
+                item.get("image_paths", {}).get("original") or
+                item.get("orig_path") or
+                item.get("path")
+            )
+            if orig_path and os.path.exists(orig_path):
+                try:
+                    with Image.open(orig_path) as img:
+                        w, h = img.size
+                except Exception:
+                    pass
 
-        # 3. Sizes
+        dim_display = f"{int(w)} x {int(h)}" if (w and h) else (dim_str if dim_str else "N/A")
+
+        # 4. Dynamic File Sizes (KB)
         orig_bytes = _to_float(
             item.get("image_information", {}).get("original_file_size_bytes") or
+            item.get("original_file_size_bytes") or
             item.get("original_size_bytes") or
-            item.get("file_size_bytes"),
-            0.0
+            item.get("file_size_bytes")
         )
+        if (orig_bytes is None or orig_bytes <= 0):
+            orig_path = (
+                item.get("image_paths", {}).get("original") or
+                item.get("orig_path") or
+                item.get("path")
+            )
+            if orig_path and os.path.exists(orig_path):
+                try:
+                    orig_bytes = float(os.path.getsize(orig_path))
+                except Exception:
+                    pass
+
+        orig_kb = round(orig_bytes / 1024.0, 1) if (orig_bytes and orig_bytes > 0) else None
+
         recon_bytes = _to_float(
             item.get("image_information", {}).get("reconstructed_file_size_bytes") or
+            item.get("reconstructed_file_size_bytes") or
             item.get("reconstructed_size_bytes") or
-            item.get("recon_size_bytes"),
-            0.0
+            item.get("recon_size_bytes") or
+            item.get("recon_file_size_bytes")
         )
-        orig_kb = round(orig_bytes / 1024.0, 2) if orig_bytes > 0 else 0.0
-        recon_kb = round(recon_bytes / 1024.0, 2) if recon_bytes > 0 else 0.0
-        enhancement_desc = "GAN + CBAM Attention"
+        if (recon_bytes is None or recon_bytes <= 0):
+            recon_path = (
+                item.get("image_paths", {}).get("reconstructed") or
+                item.get("recon_path")
+            )
+            if recon_path and os.path.exists(recon_path):
+                try:
+                    recon_bytes = float(os.path.getsize(recon_path))
+                except Exception:
+                    pass
 
-        # 4. Reconstruction Metrics
+        recon_kb = round(recon_bytes / 1024.0, 1) if (recon_bytes and recon_bytes > 0) else None
+
+        # 5. Dynamic Calculated Metrics (PSNR, SSIM, MAE)
         rm = item.get("reconstruction_metrics", {})
         psnr_val = _to_float(rm.get("psnr_db") if rm.get("psnr_db") is not None else rm.get("psnr"))
+        if psnr_val is None:
+            psnr_val = _to_float(item.get("psnr_db") if item.get("psnr_db") is not None else item.get("psnr"))
+
         ssim_val = _to_float(rm.get("ssim"))
+        if ssim_val is None:
+            ssim_val = _to_float(item.get("ssim"))
+
         mae_val = _to_float(rm.get("mae"))
+        if mae_val is None:
+            mae_val = _to_float(item.get("mae"))
 
-        psnr_disp = round(psnr_val, 2) if psnr_val is not None else 0.0
-        ssim_disp = round(ssim_val, 4) if ssim_val is not None else 0.0
-        mae_disp = round(mae_val, 4) if mae_val is not None else 0.0
+        psnr_cell = round(psnr_val, 2) if psnr_val is not None else "N/A"
+        ssim_cell = round(ssim_val, 4) if ssim_val is not None else "N/A"
+        mae_cell = round(mae_val, 4) if mae_val is not None else "N/A"
 
-        # 5. Diagnostic Classification & Confidence
+        if psnr_val is not None and val_text == "Valid":
+            valid_psnrs.append(psnr_val)
+        if ssim_val is not None and val_text == "Valid":
+            valid_ssims.append(ssim_val)
+        if mae_val is not None and val_text == "Valid":
+            valid_maes.append(mae_val)
+
+        # 6. Hybrid Prediction & Confidence
         pred_cls = (
             item.get("hybrid_pred") or
             item.get("hybrid", {}).get("prediction") or
             item.get("classification", {}).get("prediction") or
+            item.get("prediction") or
             item.get("resnet50_pred") or
             "N/A"
         )
-        full_diag = DISEASE_FULL_NAMES.get(pred_cls, pred_cls)
-
-        def _clean_conf(c_val):
-            v = _to_float(c_val)
-            if v is None:
-                return 0.0
-            return float(v * 100.0 if v <= 1.0 and v > 0 else v)
-
-        hybrid_c = round(_clean_conf(item.get("hybrid_conf") or item.get("hybrid", {}).get("confidence") or item.get("classification", {}).get("confidence")), 2)
-        r_pred = item.get("resnet50_pred") or item.get("resnet50", {}).get("prediction") or "N/A"
-        r_conf = round(_clean_conf(item.get("resnet50_conf") or item.get("resnet50", {}).get("confidence")), 2)
-        d_pred = item.get("densenet_pred") or item.get("densenet121", {}).get("prediction") or item.get("densenet", {}).get("prediction") or "N/A"
-        d_conf = round(_clean_conf(item.get("densenet_conf") or item.get("densenet121", {}).get("confidence") or item.get("densenet", {}).get("confidence")), 2)
-
-        # 6. Class Probabilities
-        probs = (
-            item.get("classification", {}).get("probabilities") or
-            item.get("probabilities") or
-            item.get("hybrid", {}).get("probabilities") or {}
+        raw_conf = (
+            item.get("hybrid_conf") or
+            item.get("hybrid", {}).get("confidence") or
+            item.get("classification", {}).get("confidence") or
+            item.get("confidence")
         )
-        def _get_prob(key):
-            val = _to_float(probs.get(key), 0.0)
-            return round(float(val * 100.0 if val <= 1.0 and val > 0 else val), 2)
+        conf_pct = _clean_conf(raw_conf)
+        conf_cell = conf_pct if conf_pct is not None else "N/A"
 
-        p_all = _get_prob("ALL")
-        p_aml = _get_prob("AML")
-        p_cll = _get_prob("CLL")
-        p_cml = _get_prob("CML")
-        p_normal = _get_prob("Normal")
+        # 7. Full Disease Subtype
+        full_subtype = DISEASE_FULL_NAMES.get(pred_cls, pred_cls)
 
-        sess_id = item.get("session_id") or "N/A"
-
-        # Assemble Row Values (30 items)
-        row_data = [
+        row_values = [
             idx,
             fname,
-            val_status,
-            int(w) if w else "N/A",
-            int(h) if h else "N/A",
-            fmt,
-            color_mode,
-            orig_kb,
-            int(orig_bytes),
-            recon_kb,
-            int(recon_bytes),
-            enhancement_desc,
-            psnr_disp,
-            ssim_disp,
-            mae_disp,
+            val_text,
+            dim_display,
+            orig_kb if orig_kb is not None else "N/A",
+            recon_kb if recon_kb is not None else "N/A",
+            psnr_cell,
+            ssim_cell,
+            mae_cell,
             pred_cls,
-            full_diag,
-            hybrid_c,
-            r_pred,
-            r_conf,
-            d_pred,
-            d_conf,
-            p_all,
-            p_aml,
-            p_cll,
-            p_cml,
-            p_normal,
-            sess_id
+            conf_cell,
+            full_subtype
         ]
 
-        ws_data.row_dimensions[row_num].height = 20
-        for col_idx, (col_def, val) in enumerate(zip(columns, row_data), start=1):
-            cell = ws_data.cell(row=row_num, column=col_idx, value=val)
-            cell.font = data_bold_font if col_def["id"] in ("filename", "pred_class", "confidence") else data_font
-            cell.alignment = col_def["align"]
-            cell.border = border_thin
+        ws.row_dimensions[current_row].height = 20
+        for col_idx, (col_info, val) in enumerate(zip(columns, row_values), start=1):
+            cell = ws.cell(row=current_row, column=col_idx, value=val)
+            cell.font = data_font
+            cell.alignment = col_info["align"]
+            cell.border = border_cell
 
-            if "fmt" in col_def and isinstance(val, (int, float)):
-                cell.number_format = col_def["fmt"]
+            if isinstance(val, (int, float)) and "fmt" in col_info:
+                cell.number_format = col_info["fmt"]
 
-            # Alternating subtle zebra striping
-            if row_num % 2 == 1:
-                cell.fill = fill_zebra
-
-        row_num += 1
+        current_row += 1
 
     # -------------------------------------------------------------------------
-    # 5. Master Table Final Summary & Average Row
+    # 6. AVERAGE / OVERALL SUMMARY Row
     # -------------------------------------------------------------------------
-    summary_row = row_num
-    ws_data.row_dimensions[summary_row].height = 24
+    summary_row = current_row
+    ws.row_dimensions[summary_row].height = 22
 
-    summary_values = {
-        "index": "SUMMARY",
-        "filename": f"Total Cohort: {total_count} Slides",
-        "validation": f"{len(valid_items)} Valid ({valid_rate:.1f}%)",
-        "width": "-",
-        "height": "-",
-        "format": "-",
-        "color_mode": "-",
-        "orig_kb": round(_avg(orig_kb_vals), 2),
-        "orig_bytes": int(sum(orig_kb_vals) * 1024) if orig_kb_vals else 0,
-        "recon_kb": round(_avg(recon_kb_vals), 2),
-        "recon_bytes": int(sum(recon_kb_vals) * 1024) if recon_kb_vals else 0,
-        "enhancement": "GAN + CBAM Attention",
-        "psnr": round(_avg(psnr_vals), 2),
-        "ssim": round(_avg(ssim_vals), 4),
-        "mae": round(_avg(mae_vals), 4),
-        "pred_class": "Cohort Averages",
-        "full_diagnosis": f"{total_classified} Diagnostic Classifications",
-        "confidence": round(_avg(hybrid_conf_vals), 2),
-        "resnet_pred": "-",
-        "resnet_conf": round(_avg(resnet_conf_vals), 2),
-        "densenet_pred": "-",
-        "densenet_conf": round(_avg(densenet_conf_vals), 2),
-        "prob_all": "-",
-        "prob_aml": "-",
-        "prob_cll": "-",
-        "prob_cml": "-",
-        "prob_normal": "-",
-        "session_id": "-"
-    }
+    # Pre-fill row cells with summary styling
+    for col_idx in range(1, len(columns) + 1):
+        cell = ws.cell(row=summary_row, column=col_idx)
+        cell.font = summary_font
+        cell.fill = summary_fill
+        cell.border = border_summary
 
-    for col_idx, col_def in enumerate(columns, start=1):
-        cid = col_def["id"]
-        val = summary_values.get(cid, "-")
-        cell = ws_data.cell(row=summary_row, column=col_idx, value=val)
-        cell.font = summary_label_font
-        cell.fill = fill_total
-        cell.border = border_double
-        cell.alignment = col_def["align"]
+    # Column B: AVERAGE / OVERALL SUMMARY label
+    label_cell = ws.cell(row=summary_row, column=2, value="AVERAGE / OVERALL SUMMARY")
+    label_cell.alignment = align_left
 
-        if "fmt" in col_def and isinstance(val, (int, float)):
-            cell.number_format = col_def["fmt"]
+    # Dynamic average calculations
+    if valid_psnrs:
+        avg_psnr = round(sum(valid_psnrs) / len(valid_psnrs), 2)
+        psnr_avg_cell = ws.cell(row=summary_row, column=7, value=avg_psnr)
+        psnr_avg_cell.alignment = align_right
+        psnr_avg_cell.number_format = "0.00"
+
+    if valid_ssims:
+        avg_ssim = round(sum(valid_ssims) / len(valid_ssims), 4)
+        ssim_avg_cell = ws.cell(row=summary_row, column=8, value=avg_ssim)
+        ssim_avg_cell.alignment = align_right
+        ssim_avg_cell.number_format = "0.0000"
+
+    if valid_maes:
+        avg_mae = round(sum(valid_maes) / len(valid_maes), 4)
+        mae_avg_cell = ws.cell(row=summary_row, column=9, value=avg_mae)
+        mae_avg_cell.alignment = align_right
+        mae_avg_cell.number_format = "0.0000"
 
     # -------------------------------------------------------------------------
-    # 6. Apply Excel AutoFilters to Master Table (Row 1 to summary_row - 1)
+    # 7. Column Widths
     # -------------------------------------------------------------------------
-    last_col_letter = get_column_letter(len(columns))
-    data_last_row = summary_row - 1 if summary_row > 2 else 2
-    ws_data.auto_filter.ref = f"A1:{last_col_letter}{data_last_row}"
-
-    # -------------------------------------------------------------------------
-    # 7. Auto-Fit Column Widths with Generous Padding to Guarantee Zero Cut-Off
-    # -------------------------------------------------------------------------
-    # Sheet 1: Summary Sheet Widths
-    for col in ws_summary.columns:
-        col_letter = get_column_letter(col[0].column)
-        max_len = 0
-        for cell in col:
-            # Skip title banner row in length calculation
-            if cell.row in (1, 2):
-                continue
-            v_str = str(cell.value or "")
-            if len(v_str) > max_len:
-                max_len = len(v_str)
-        ws_summary.column_dimensions[col_letter].width = max(max_len + 4, 18)
-
-    # Sheet 2: Master Data Sheet Widths
-    for col_idx, col_def in enumerate(columns, start=1):
+    for col_idx, col_info in enumerate(columns, start=1):
         col_letter = get_column_letter(col_idx)
-        max_len = len(col_def["name"])
-        for r_idx in range(2, summary_row + 1):
-            val_str = str(ws_data.cell(row=r_idx, column=col_idx).value or "")
-            if len(val_str) > max_len:
-                max_len = len(val_str)
-        calculated_width = max(max_len + 3, col_def.get("min_width", 14))
-        ws_data.column_dimensions[col_letter].width = calculated_width
+        # Check max length of filenames or content to ensure no truncation
+        calc_width = col_info["width"]
+        if col_idx == 2 and items:  # Filename column
+            max_len = max(len(str(ws.cell(row=r, column=2).value or '')) for r in range(5, current_row))
+            calc_width = max(col_info["width"], min(max_len + 3, 110))
+        ws.column_dimensions[col_letter].width = calc_width
 
-    # -------------------------------------------------------------------------
-    # 8. Save Workbook to Output Path
-    # -------------------------------------------------------------------------
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    # Ensure parent directory exists and save
+    out_dir = os.path.dirname(output_path)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
     wb.save(output_path)
     return output_path
