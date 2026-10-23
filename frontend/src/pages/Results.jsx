@@ -1119,16 +1119,6 @@ export default function Results({ setActiveTab, analysisData }) {
             </table>
           </div>
 
-          {/* Methodological Transparency Note */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 space-y-1">
-            <div className="font-bold text-slate-800 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Statistical & Evaluation Clarity Note:</span>
-            </div>
-            <p className="leading-relaxed">
-              <strong>Single-Slide Confidence ({confidencePercent}%)</strong> measures the neural network softmax activation certainty for the current enhanced slide. In contrast, <strong>Accuracy ({benchmarkAccuracy}%), Precision ({benchmarkPrecision}%), Sensitivity ({benchmarkSensitivity}%), Specificity ({benchmarkSpecificity}%), and F1-score ({benchmarkF1}%)</strong> are population-level statistical metrics computed from the confusion matrix of 750 unseen evaluation slides. These cannot be derived for an isolated single image and are transparently presented from the validated model evaluation pipeline without fabrication.
-            </p>
-          </div>
         </div>
       )}
 
