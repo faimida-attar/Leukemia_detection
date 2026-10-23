@@ -398,34 +398,7 @@ export default function Results({ setActiveTab, analysisData }) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 print:hidden">
-          <button
-            onClick={handleExportExcel}
-            disabled={isExportingExcel}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-            title="Download full analysis report as a documented .xlsx Excel spreadsheet"
-          >
-            {isExportingExcel ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-            ) : (
-              <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
-            )}
-            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel Report'}</span>
-          </button>
-          <button
-            onClick={handleDownloadReport}
-            disabled={isDownloadingPdf || !resultsList || resultsList.length === 0}
-            className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-            title="Download comprehensive research analysis report (.pdf) directly to your laptop"
-          >
-            {isDownloadingPdf ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-            ) : (
-              <Download className="w-4 h-4 text-sky-100" />
-            )}
-            <span>{isDownloadingPdf ? 'Generating PDF...' : 'Download Report'}</span>
-          </button>
-        </div>
+
       </div>
 
       {/* 1. BATCH PROCESSING SUMMARY HEADER */}
