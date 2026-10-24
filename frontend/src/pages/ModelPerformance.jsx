@@ -70,12 +70,11 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
     ? (validItems.reduce((acc, item) => acc + (item?.reconstruction_metrics?.mae ?? 0), 0) / validItems.length).toFixed(4)
     : '0.0000';
 
-  // Use test-set evaluation metrics from backend
-  const modelComparison = performanceData?.model_comparison || [
-    { model: "ResNet50", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A' },
-    { model: "DenseNet121", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A' },
+  // Use test-set evaluation metrics from backend (filter to show only Hybrid architecture)
+  const rawModelComparison = performanceData?.model_comparison || [
     { model: "Hybrid ResNet50 + DenseNet121", accuracy: 'N/A', precision: 'N/A', recall: 'N/A', f1: 'N/A', sensitivity: 'N/A', specificity: 'N/A', auc: 'N/A', isBest: true }
   ];
+  const modelComparison = rawModelComparison.filter(m => m.model.toLowerCase().includes('hybrid'));
 
   // Render static confusion matrix from test-set evaluation
   const renderConfusionMatrix = (modelKey, title) => {
@@ -154,7 +153,7 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
               Model Comparison
             </span>
             <h2 className="text-xl font-extrabold text-slate-900 mt-2">
-              ResNet50 vs DenseNet121 vs Hybrid ResNet50 + DenseNet121
+              Hybrid ResNet50 + DenseNet121 Architecture Performance
             </h2>
             <p className="text-xs text-slate-500">Evaluated on the full 750-image test set</p>
           </div>
