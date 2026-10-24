@@ -106,15 +106,15 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
         orig_np = np.array(orig_matched, dtype=np.float32)
         recon_np = np.array(recon_resized, dtype=np.float32)
 
-        # Scale optical kernel dynamically based on actual image resolution
+        # Dynamic optical kernel directly proportional to the GAN downsampling scale:
         max_dim = max(target_w, target_h)
-        scale = max(1.5, min(4.5, max_dim / 950.0))
-        k = int(2 * round(3 * scale) + 1)
+        scale = max(1.5, max_dim / 256.0)
+        k = int(2 * round(2.5 * scale) + 1)
         if k % 2 == 0:
             k += 1
 
         orig_blur = cv2.GaussianBlur(orig_np, (k, k), scale)
-        high_pass = orig_np - orig_blur  # Cellular edges and fine chromatin texture
+        high_pass = orig_np - orig_blur  # Cellular edges, membrane rings, and chromatin details
 
         # High-frequency edge texture fusion onto denoised GAN output (0.95x restoration)
         fused_np = recon_np + 0.95 * high_pass
@@ -130,10 +130,9 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
         fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
         recon_base = Image.fromarray(fused_np)
 
-        # Adaptive unsharp mask scaled to image resolution
-        unsharp_rad = max(1.2, scale * 0.6)
-        sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=unsharp_rad, percent=130, threshold=1))
-        sharp_recon = ImageEnhance.Contrast(sharp_recon).enhance(1.08)
+        # Light cytological unsharp crisping
+        sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=1.5, percent=125, threshold=1))
+        sharp_recon = ImageEnhance.Contrast(sharp_recon).enhance(1.04)
     else:
         sharp_recon = recon_resized.filter(ImageFilter.UnsharpMask(radius=1.8, percent=130, threshold=1))
 
@@ -177,22 +176,15 @@ if os.path.exists(gan_ckpt):
 
 # Helper functions
 def pil_to_base64(pil_img, format="PNG"):
-    """Convert PIL image to high-fidelity base64 string for web payload transmission without blur."""
+    """Convert PIL image to dynamic native-resolution base64 string without hardcoded dimension limits."""
     buffer = io.BytesIO()
-    # For web display, prevent browser lag on ultra-large images (> 2560px) while maintaining crisp Lanczos sharpness
-    if pil_img.width > 2560 or pil_img.height > 2560:
-        ratio = min(2560.0 / pil_img.width, 2560.0 / pil_img.height)
-        display_img = pil_img.resize((int(pil_img.width * ratio), int(pil_img.height * ratio)), Image.Resampling.LANCZOS)
-    else:
-        display_img = pil_img
-
     save_format = "PNG" if format.upper() == "PNG" else "JPEG"
     if save_format == "JPEG":
-        if display_img.mode != "RGB":
-            display_img = display_img.convert("RGB")
-        display_img.save(buffer, format="JPEG", quality=95)
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        pil_img.save(buffer, format="JPEG", quality=95)
     else:
-        display_img.save(buffer, format="PNG", optimize=True)
+        pil_img.save(buffer, format="PNG")
 
     buffer.seek(0)
     img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
