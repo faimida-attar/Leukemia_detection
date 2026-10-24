@@ -986,7 +986,6 @@ export default function Results({ setActiveTab, analysisData }) {
                   <th className="p-3.5">Metric</th>
                   <th className="p-3.5">Calculated Value</th>
                   <th className="p-3.5">Evaluation Scope</th>
-                  <th className="p-3.5">Clinical & Research Significance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -1003,9 +1002,6 @@ export default function Results({ setActiveTab, analysisData }) {
                       Active Reconstructed Image
                     </span>
                   </td>
-                  <td className="p-3.5 text-slate-600">
-                    Diagnostic classification inferred by Hybrid ResNet50 + DenseNet121 from the GAN+CBAM enhanced slide.
-                  </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50/60 transition-colors">
@@ -1020,9 +1016,6 @@ export default function Results({ setActiveTab, analysisData }) {
                     <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold">
                       Single Slide (Posterior Probability)
                     </span>
-                  </td>
-                  <td className="p-3.5 text-slate-600">
-                    Softmax probability score of the active reconstructed slide for the predicted subtype.
                   </td>
                 </tr>
 
@@ -1039,9 +1032,6 @@ export default function Results({ setActiveTab, analysisData }) {
                       Empirical Cohort (750 Test Slides)
                     </span>
                   </td>
-                  <td className="p-3.5 text-slate-600">
-                    Overall test set accuracy across 5 classes (cannot be mathematically derived for an individual isolated slide).
-                  </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50/60 transition-colors">
@@ -1056,9 +1046,6 @@ export default function Results({ setActiveTab, analysisData }) {
                     <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold">
                       Class Benchmark ({predClass})
                     </span>
-                  </td>
-                  <td className="p-3.5 text-slate-600">
-                    Positive predictive value: fraction of relevant instances among predicted {predClass} instances.
                   </td>
                 </tr>
 
@@ -1075,9 +1062,6 @@ export default function Results({ setActiveTab, analysisData }) {
                       Class Benchmark ({predClass})
                     </span>
                   </td>
-                  <td className="p-3.5 text-slate-600">
-                    True positive rate: ability to detect true {predClass} cases without false negatives.
-                  </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50/60 transition-colors">
@@ -1093,9 +1077,6 @@ export default function Results({ setActiveTab, analysisData }) {
                       Class Benchmark ({predClass})
                     </span>
                   </td>
-                  <td className="p-3.5 text-slate-600">
-                    True negative rate: ability to correctly exclude non-{predClass} slides.
-                  </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50/60 transition-colors">
@@ -1110,9 +1091,6 @@ export default function Results({ setActiveTab, analysisData }) {
                     <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
                       Harmonic Mean ({predClass})
                     </span>
-                  </td>
-                  <td className="p-3.5 text-slate-600">
-                    Harmonic mean of precision and sensitivity balancing diagnostic accuracy.
                   </td>
                 </tr>
               </tbody>
