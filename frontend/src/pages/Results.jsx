@@ -1108,24 +1108,6 @@ export default function Results({ setActiveTab, analysisData }) {
               <Table className="w-4 h-4 text-sky-600" />
               <span>BATCH MASTER TABLE ({totalImages} UPLOADED SLIDES)</span>
             </h2>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500 font-mono hidden md:inline">
-                Click 'Inspect' to make an image active & view detailed analysis
-              </span>
-              <button
-                onClick={handleExportExcel}
-                disabled={isExportingExcel}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
-                title="Export batch master table to .xlsx Excel"
-              >
-                {isExportingExcel ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                ) : (
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                )}
-                <span>Export Excel Report</span>
-              </button>
-            </div>
           </div>
 
           <div className="overflow-x-auto border border-slate-200 rounded-2xl">
