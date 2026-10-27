@@ -10,6 +10,7 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image, ImageFilter, ImageEnhance
 from flask import Flask, request, jsonify, send_file, send_from_directory
+from werkzeug.utils import secure_filename
 from flask_cors import CORS
 from dotenv import load_dotenv
 import pymongo
@@ -500,12 +501,20 @@ def analyze_full_pipeline():
                 "total_execution_time_ms": round(t_val * 1000, 1)
             }), 200
 
-        # Save original session image in its native uploaded format
+        # Save original session image in its native uploaded format without any recompression
         session_id = str(uuid.uuid4())[:8]
-        orig_ext = ".jpg" if "jpeg" in orig_mime else ".png"
-        orig_path = os.path.join(UPLOADS_DIR, f"{session_id}_orig{orig_ext}")
+        orig_basename = os.path.basename(filename)
+        _, f_ext = os.path.splitext(orig_basename)
+        if not f_ext or len(f_ext) > 5:
+            f_ext = ".jpg" if "jpeg" in orig_mime else ".png"
+        orig_ext = f_ext.lower()
+        orig_filename = f"{session_id}_orig{orig_ext}"
+        orig_path = os.path.join(UPLOADS_DIR, orig_filename)
         with open(orig_path, "wb") as f_orig:
             f_orig.write(orig_raw_bytes)
+
+        orig_file_size_bytes = os.path.getsize(orig_path)
+        orig_file_size_formatted = format_file_size(orig_file_size_bytes)
 
         # Step 2: GAN + CBAM Reconstruction (Attention-Guided Noise Reduction)
         st2_start = datetime.datetime.now()
@@ -527,10 +536,17 @@ def analyze_full_pipeline():
         t0 = time.perf_counter()
         recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h, orig_pil=pil_img)
 
-        recon_path = os.path.join(RESULTS_DIR, f"{session_id}_recon.png")
-        recon_pil.save(recon_path)
+        # Save reconstructed image once and preserve exact saved output bytes
+        recon_filename = f"{session_id}_recon.png"
+        recon_path = os.path.join(RESULTS_DIR, recon_filename)
+        recon_pil.save(recon_path, format="PNG")
         recon_file_size_bytes = os.path.getsize(recon_path)
         recon_file_size_formatted = format_file_size(recon_file_size_bytes)
+
+        # Read exact saved output bytes from disk to prevent duplicate encoding discrepancies
+        with open(recon_path, "rb") as f_recon:
+            recon_raw_bytes = f_recon.read()
+        recon_b64 = f"data:image/png;base64,{base64.b64encode(recon_raw_bytes).decode('utf-8')}"
 
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
         t_enh_met = time.perf_counter() - t0
@@ -709,6 +725,10 @@ def analyze_full_pipeline():
 
         print(f"[Pipeline Timing] Val: {t_val*1000:.1f}ms | GAN: {t_gan*1000:.1f}ms | Enh/Met: {t_enh_met*1000:.1f}ms | ResNet: {t_resnet*1000:.1f}ms | DenseNet: {t_densenet*1000:.1f}ms | Hybrid: {t_hybrid*1000:.1f}ms | Cam: {t_cam*1000:.1f}ms | Prep: {t_prep*1000:.1f}ms | Total: {total_time_s}s ({total_time_ms}ms)", flush=True)
 
+        clean_name_root = os.path.splitext(filename)[0]
+        reconstructed_download_filename = f"reconstructed_{clean_name_root}.png"
+        original_download_filename = f"original_{filename}"
+
         # Assemble comprehensive response payload
         response_payload = {
             "session_id": session_id,
@@ -719,10 +739,16 @@ def analyze_full_pipeline():
             "total_execution_time_seconds": total_time_s,
             "total_execution_time_ms": total_time_ms,
             "image_information": {
+                "session_id": session_id,
                 "filename": filename,
+                "original_filename": filename,
+                "reconstructed_filename": reconstructed_download_filename,
+                "format": orig_format_str,
+                "original_format": orig_format_str,
+                "reconstructed_format": "PNG",
                 "original_dimensions": f"{orig_w} x {orig_h}",
                 "processed_dimensions": f"{recon_pil.width} x {recon_pil.height}",
-                "format": orig_format_str,
+                "reconstructed_dimensions": f"{recon_pil.width} x {recon_pil.height}",
                 "original_file_size_bytes": orig_file_size_bytes,
                 "original_file_size_formatted": orig_file_size_formatted,
                 "reconstructed_file_size_bytes": recon_file_size_bytes,
@@ -730,8 +756,13 @@ def analyze_full_pipeline():
             },
             "images": {
                 "original": orig_b64,
-                "reconstructed": pil_to_base64(recon_pil),
+                "reconstructed": recon_b64,
                 "gradcam": None if is_normal_stage else gradcam_b64
+            },
+            "download_urls": {
+                "original": f"/api/download/{session_id}/original?filename={original_download_filename}",
+                "reconstructed": f"/api/download/{session_id}/reconstructed?filename={reconstructed_download_filename}",
+                "gradcam": f"/api/download/{session_id}/gradcam?filename=gradcam_{clean_name_root}.png" if not is_normal_stage else None
             },
             "image_paths": {
                 "original": orig_path,
@@ -817,6 +848,39 @@ def analyze_full_pipeline():
             "success": False,
             "error": f"Pipeline analysis error: {str(pipeline_err)}"
         }), 500
+
+
+@app.route('/api/download/<session_id>/<img_type>', methods=['GET'])
+def download_session_image(session_id, img_type):
+    """
+    Download exact original or reconstructed file byte-for-byte from disk without any recompression.
+    img_type: 'original' or 'reconstructed' or 'gradcam'
+    """
+    safe_session = secure_filename(session_id)
+    if img_type == 'original':
+        candidates = [f for f in os.listdir(UPLOADS_DIR) if f.startswith(f"{safe_session}_orig")]
+        if not candidates:
+            return jsonify({"error": "Original file not found"}), 404
+        file_path = os.path.join(UPLOADS_DIR, candidates[0])
+        dl_name = request.args.get('filename') or candidates[0]
+        mtype = 'image/jpeg' if candidates[0].lower().endswith(('.jpg', '.jpeg')) else 'image/png'
+        return send_file(file_path, as_attachment=True, download_name=dl_name, mimetype=mtype)
+
+    elif img_type == 'reconstructed':
+        file_path = os.path.join(RESULTS_DIR, f"{safe_session}_recon.png")
+        if not os.path.exists(file_path):
+            return jsonify({"error": "Reconstructed file not found"}), 404
+        dl_name = request.args.get('filename') or f"{safe_session}_recon.png"
+        return send_file(file_path, as_attachment=True, download_name=dl_name, mimetype='image/png')
+
+    elif img_type == 'gradcam':
+        file_path = os.path.join(RESULTS_DIR, f"{safe_session}_gradcam.png")
+        if not os.path.exists(file_path):
+            return jsonify({"error": "Grad-CAM file not found"}), 404
+        dl_name = request.args.get('filename') or f"{safe_session}_gradcam.png"
+        return send_file(file_path, as_attachment=True, download_name=dl_name, mimetype='image/png')
+
+    return jsonify({"error": f"Invalid image type '{img_type}'"}), 400
 
 
 @app.route('/api/history', methods=['GET'])

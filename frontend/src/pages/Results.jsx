@@ -26,10 +26,11 @@ export default function Results({
     window.print();
   };
 
-  // Helper to open image in a new standalone child browser window with download option
-  const openImageInNewWindow = (imgUrl, title, resolution, fileSize, downloadFilename) => {
+  // Helper to open image in a new standalone child browser window with direct byte-for-byte download option
+  const openImageInNewWindow = (imgUrl, title, resolution, fileSize, downloadFilename, downloadUrl) => {
     if (!imgUrl) return;
     const dlName = downloadFilename || (title.replace(/[^a-zA-Z0-9_-]/g, '_') + '.png');
+    const dlHref = downloadUrl || imgUrl;
     const imageWindow = window.open('', '_blank', 'width=950,height=820,resizable=yes,scrollbars=yes');
     if (imageWindow) {
       imageWindow.document.write(`
@@ -127,12 +128,12 @@ export default function Results({
           <body>
             <div class="card">
               <h2>${title}</h2>
-              <div class="meta">Resolution: ${resolution} &bull; Size: ${fileSize}</div>
+              <div class="meta">Resolution: ${resolution} &bull; Exact Size: ${fileSize}</div>
               <br/>
               <img src="${imgUrl}" alt="${title}" />
               <br/>
               <div class="btn-group">
-                <a class="btn-download" href="${imgUrl}" download="${dlName}">
+                <a class="btn-download" href="${dlHref}" download="${dlName}">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   <span>Download Image</span>
                 </a>
@@ -246,32 +247,71 @@ export default function Results({
 
   const currentData = resultsList[activeIndex] || resultsList[0] || {};
 
-  // Active Image dynamic properties (Accurate file sizes from original stream/metadata)
-  const rawOrigBytes = currentData?.image_information?.original_file_size_bytes ||
-    currentData?.image_information?.file_size_bytes ||
-    currentData?.original_size_bytes ||
-    currentData?.file_size_bytes || 0;
+  // Active Image dynamic properties (Accurate individual file sizes from original stream and saved output)
+  const rawOrigBytes = currentData?.image_information?.original_file_size_bytes ??
+    currentData?.original_size_bytes ??
+    currentData?.file_size_bytes ?? 0;
 
-  const rawReconBytes = currentData?.image_information?.reconstructed_file_size_bytes ||
-    currentData?.reconstruction_metrics?.recon_file_size_bytes ||
-    currentData?.recon_file_size_bytes ||
-    rawOrigBytes;
+  const rawReconBytes = currentData?.image_information?.reconstructed_file_size_bytes ??
+    currentData?.reconstruction_metrics?.recon_file_size_bytes ??
+    currentData?.recon_file_size_bytes ?? 0;
 
-  const origSizeFormatted = currentData?.image_information?.original_file_size_formatted ||
-    currentData?.image_information?.file_size_formatted ||
-    (rawOrigBytes > 1024 * 1024
-      ? `${(rawOrigBytes / (1024 * 1024)).toFixed(2)} MB`
-      : rawOrigBytes > 0
-        ? `${(rawOrigBytes / 1024).toFixed(1)} KB`
-        : '0 KB');
+  const formatExactFileSize = (bytes, fallbackFormatted) => {
+    if (!bytes || bytes <= 0) {
+      return fallbackFormatted || '0 KB';
+    }
+    const readable = bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+      : `${(bytes / 1024).toFixed(1)} KB`;
+    return `${readable} (${bytes.toLocaleString()} bytes)`;
+  };
 
-  const reconSizeFormatted = currentData?.image_information?.reconstructed_file_size_formatted ||
-    currentData?.reconstruction_metrics?.recon_file_size_formatted ||
-    (rawReconBytes > 1024 * 1024
-      ? `${(rawReconBytes / (1024 * 1024)).toFixed(2)} MB`
-      : rawReconBytes > 0
-        ? `${(rawReconBytes / 1024).toFixed(1)} KB`
-        : '0 KB');
+  const origSizeFormatted = formatExactFileSize(
+    rawOrigBytes,
+    currentData?.image_information?.original_file_size_formatted
+  );
+
+  const reconSizeFormatted = formatExactFileSize(
+    rawReconBytes,
+    currentData?.image_information?.reconstructed_file_size_formatted
+  );
+
+  const origFormat = currentData?.image_information?.original_format ||
+    currentData?.image_information?.format ||
+    (currentData?.selectedFileName?.toLowerCase().endsWith('.png') ? 'PNG' : 'JPEG');
+
+  const reconFormat = currentData?.image_information?.reconstructed_format || 'PNG';
+
+  const cleanOriginalFilename = currentData?.image_information?.original_filename ||
+    currentData?.image_information?.filename ||
+    currentData?.selectedFileName ||
+    'slide.jpg';
+
+  const cleanRootName = String(cleanOriginalFilename).replace(/\.[^/.]+$/, "");
+
+  const origDownloadFilename = cleanOriginalFilename.startsWith('original_')
+    ? cleanOriginalFilename
+    : `original_${cleanOriginalFilename}`;
+
+  const reconDownloadFilename = currentData?.image_information?.reconstructed_filename ||
+    `reconstructed_${cleanRootName}.png`;
+
+  const origDownloadUrl = currentData?.download_urls?.original ||
+    (currentData?.session_id ? `/api/download/${currentData.session_id}/original?filename=${origDownloadFilename}` : null);
+
+  const reconDownloadUrl = currentData?.download_urls?.reconstructed ||
+    (currentData?.session_id ? `/api/download/${currentData.session_id}/reconstructed?filename=${reconDownloadFilename}` : null);
+
+  const handleDownloadFile = (downloadUrl, fallbackDataUrl, filename) => {
+    const targetUrl = downloadUrl || fallbackDataUrl;
+    if (!targetUrl) return;
+    const link = document.createElement('a');
+    link.href = targetUrl;
+    link.download = filename || 'downloaded_image.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const formatDimensions = (dimStr) => {
     if (!dimStr) return null;
@@ -828,18 +868,30 @@ export default function Results({
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div><span className="text-slate-400 font-sans">Format:</span> <strong className="text-slate-900">{origFormat}</strong></div>
               <div><span className="text-slate-400 font-sans">Resolution:</span> <strong className="text-slate-900">{origRes}</strong></div>
-              <div><span className="text-slate-400 font-sans">File Size:</span> <strong className="text-slate-900">{origSizeFormatted}</strong></div>
+              <div className="col-span-2"><span className="text-slate-400 font-sans">File Size:</span> <strong className="text-slate-900">{origSizeFormatted}</strong></div>
             </div>
           </div>
 
-          <button
-            onClick={() => openImageInNewWindow(origImgSrc, 'Original Uploaded Blood Smear Slide', origRes, origSizeFormatted, `original_${currentData?.image_information?.filename || 'slide.jpg'}`)}
-            className="w-full mt-2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
-            <span>Show Original Image (Child Window)</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <button
+              onClick={() => openImageInNewWindow(origImgSrc, 'Original Uploaded Blood Smear Slide', origRes, origSizeFormatted, origDownloadFilename, origDownloadUrl)}
+              className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+              title="Inspect original slide in child window"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+              <span>Show in Child Window</span>
+            </button>
+            <button
+              onClick={() => handleDownloadFile(origDownloadUrl, origImgSrc, origDownloadFilename)}
+              className="py-2.5 px-3.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              title="Download original file byte-for-byte"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-400" />
+              <span>Download</span>
+            </button>
+          </div>
         </div>
 
         {/* Card 3: Reconstructed Image (GAN + CBAM) + Actual File Size + Show Button opens Child Window */}
@@ -853,8 +905,9 @@ export default function Results({
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div><span className="text-slate-400 font-sans">Format:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconFormat}</strong></div>
               <div><span className="text-slate-400 font-sans">Resolution:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconRes}</strong></div>
-              <div><span className="text-slate-400 font-sans">Enhanced Size:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconSizeFormatted}</strong></div>
+              <div className="col-span-2"><span className="text-slate-400 font-sans">Enhanced Size:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconSizeFormatted}</strong></div>
               <div className="col-span-2"><span className="text-slate-400 font-sans">Enhancement:</span> <strong className={isInvalid ? "text-rose-600 font-sans" : "text-sky-700 font-sans"}>{isInvalid ? 'Blocked (Invalid Non-Microscopy Image)' : 'GAN Generator + CBAM Attention'}</strong></div>
             </div>
           </div>
@@ -865,13 +918,24 @@ export default function Results({
               <span>Reconstruction Disabled</span>
             </div>
           ) : (
-            <button
-              onClick={() => openImageInNewWindow(reconImgSrc, 'GAN + CBAM Enhanced Reconstructed Slide', reconRes, reconSizeFormatted, `reconstructed_${currentData?.image_information?.filename || 'enhanced.png'}`)}
-              className="w-full mt-2 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-white" />
-              <span>Show Reconstructed Image (Child Window)</span>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 mt-2">
+              <button
+                onClick={() => openImageInNewWindow(reconImgSrc, 'GAN + CBAM Enhanced Reconstructed Slide', reconRes, reconSizeFormatted, reconDownloadFilename, reconDownloadUrl)}
+                className="flex-1 py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-900 text-xs font-bold rounded-xl border border-sky-300 flex items-center justify-center gap-1.5 transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+                title="Inspect reconstructed slide in child window"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                <span>Show in Child Window</span>
+              </button>
+              <button
+                onClick={() => handleDownloadFile(reconDownloadUrl, reconImgSrc, reconDownloadFilename)}
+                className="py-2.5 px-3.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                title="Download reconstructed output byte-for-byte"
+              >
+                <Download className="w-3.5 h-3.5 text-white" />
+                <span>Download</span>
+              </button>
+            </div>
           )}
         </div>
 
