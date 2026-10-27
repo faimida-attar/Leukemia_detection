@@ -450,13 +450,32 @@ def analyze_full_pipeline():
         orig_b64 = f"data:{orig_mime};base64,{base64.b64encode(orig_raw_bytes).decode('utf-8')}"
 
         t0_pipeline = time.perf_counter()
+        st1_start = datetime.datetime.now()
 
         # Step 1: Image Validation (Strict Blood-Smear Microscopy Verification)
         t0 = time.perf_counter()
         val_res = validator.validate(pil_img, cv2_img)
         t_val = time.perf_counter() - t0
+        st1_end = datetime.datetime.now()
 
         if not val_res["is_valid"]:
+            fail_logs = [
+                {
+                    "stage": "Image validation",
+                    "start_time": st1_start.strftime("%H:%M:%S.%f")[:-3],
+                    "end_time": st1_end.strftime("%H:%M:%S.%f")[:-3],
+                    "duration_ms": round(t_val * 1000, 1),
+                    "status": "Failed",
+                    "details": val_res.get("reason", "Invalid Non-Microscopy Slide")
+                },
+                {"stage": "GAN + CBAM reconstruction", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "Image enhancement and PSNR/SSIM/MAE calculation", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "ResNet50 feature extraction", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "DenseNet121 feature extraction", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "Hybrid classification and prediction", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "Grad-CAM generation", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"},
+                {"stage": "Final result preparation", "status": "Skipped", "duration_ms": 0, "details": "Skipped due to validation failure"}
+            ]
             return jsonify({
                 "is_valid": False,
                 "validation": val_res,
@@ -476,9 +495,7 @@ def analyze_full_pipeline():
                     "reconstructed": None,
                     "gradcam": None
                 },
-                "pipeline_logs": [
-                    {"stage": "Image Validation", "time_ms": round(t_val * 1000, 1), "status": "Rejected", "details": val_res.get("reason", "Invalid Non-Microscopy Slide")}
-                ],
+                "pipeline_logs": fail_logs,
                 "total_execution_time_seconds": round(t_val, 2),
                 "total_execution_time_ms": round(t_val * 1000, 1)
             }), 200
@@ -491,6 +508,7 @@ def analyze_full_pipeline():
             f_orig.write(orig_raw_bytes)
 
         # Step 2: GAN + CBAM Reconstruction (Attention-Guided Noise Reduction)
+        st2_start = datetime.datetime.now()
         t0 = time.perf_counter()
         transform_to_t = transforms.ToTensor()
         img_tensor = transform_to_t(pil_img.resize((256, 256))).unsqueeze(0)
@@ -502,37 +520,53 @@ def analyze_full_pipeline():
         recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
         recon_pil = Image.fromarray(recon_np)
         t_gan = time.perf_counter() - t0
+        st2_end = datetime.datetime.now()
 
-        # Step 3: High-Frequency Acuity & Edge Restoration
+        # Step 3: Image Enhancement & PSNR/SSIM/MAE Calculation
+        st3_start = datetime.datetime.now()
         t0 = time.perf_counter()
         recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h, orig_pil=pil_img)
-        t_enh = time.perf_counter() - t0
 
         recon_path = os.path.join(RESULTS_DIR, f"{session_id}_recon.png")
         recon_pil.save(recon_path)
         recon_file_size_bytes = os.path.getsize(recon_path)
         recon_file_size_formatted = format_file_size(recon_file_size_bytes)
 
-        # Step 4: Reconstruction Quality Metrics (PSNR, SSIM, MAE)
-        t0 = time.perf_counter()
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
-        t_met = time.perf_counter() - t0
+        t_enh_met = time.perf_counter() - t0
+        st3_end = datetime.datetime.now()
 
-        # Step 5: Leukemia Classification (ResNet50, DenseNet121, and Hybrid Feature Fusion)
-        # Reuse precomputed 224x224 ImageNet tensor across all models & Grad-CAM
-        t0 = time.perf_counter()
+        # Precompute 224x224 ImageNet tensor across models & Grad-CAM
         input_tensor_224 = TRANSFORM_224(pil_img).unsqueeze(0)
 
         with pipeline_lock:
+            # Step 4: ResNet50 Feature Extraction
+            st4_start = datetime.datetime.now()
+            t0 = time.perf_counter()
             with torch.inference_mode():
                 resnet_res = resnet_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
+            t_resnet = time.perf_counter() - t0
+            st4_end = datetime.datetime.now()
+
+            # Step 5: DenseNet121 Feature Extraction
+            st5_start = datetime.datetime.now()
+            t0 = time.perf_counter()
+            with torch.inference_mode():
                 densenet_res = densenet_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
+            t_densenet = time.perf_counter() - t0
+            st5_end = datetime.datetime.now()
+
+            # Step 6: Hybrid Classification and Prediction
+            st6_start = datetime.datetime.now()
+            t0 = time.perf_counter()
+            with torch.inference_mode():
                 hybrid_res = hybrid_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
-
             pred_res = hybrid_res
-            t_cls = time.perf_counter() - t0
+            t_hybrid = time.perf_counter() - t0
+            st6_end = datetime.datetime.now()
 
-            # Step 6: Grad-CAM Explainability on the Reconstructed Image
+            # Step 7: Grad-CAM Explainability on the Reconstructed Image
+            st7_start = datetime.datetime.now()
             t0 = time.perf_counter()
             gradcam_b64 = None
             gradcam_path = None
@@ -571,24 +605,11 @@ def analyze_full_pipeline():
                     if grad_cam_eval is not None:
                         grad_cam_eval.remove_hooks()
             t_cam = time.perf_counter() - t0
+            st7_end = datetime.datetime.now()
 
-        t_total = time.perf_counter() - t0_pipeline
-        total_time_s = round(t_total, 2)
-        total_time_ms = round(t_total * 1000, 1)
-
-        # Structured execution-time logs for each pipeline stage
-        pipeline_logs = [
-            {"stage": "Image Validation", "time_ms": round(t_val * 1000, 1), "status": "Completed", "details": val_res.get("status", "Verified")},
-            {"stage": "GAN + CBAM Reconstruction", "time_ms": round(t_gan * 1000, 1), "status": "Completed", "details": "Attention-Guided Denoising"},
-            {"stage": "Resolution Acuity Enhancement", "time_ms": round(t_enh * 1000, 1), "status": "Completed", "details": f"{orig_w}x{orig_h} Native Target"},
-            {"stage": "PSNR / SSIM / MAE Calculation", "time_ms": round(t_met * 1000, 1), "status": "Completed", "details": f"PSNR: {metrics.get('psnr_db', metrics.get('psnr'))} dB, SSIM: {metrics.get('ssim')}"},
-            {"stage": "ResNet50 + DenseNet121 Hybrid Prediction", "time_ms": round(t_cls * 1000, 1), "status": "Completed", "details": f"{pred_class_name} ({pred_res.get('confidence')}%)"},
-            {"stage": "Grad-CAM Explainability", "time_ms": round(t_cam * 1000, 1), "status": "Completed" if not is_normal_stage else "Skipped (Normal Control)", "details": "layer4 Bottleneck activation" if not is_normal_stage else "N/A for Normal"},
-        ]
-
-        print(f"[Pipeline Timing] Validation: {t_val*1000:.1f}ms | GAN+CBAM: {t_gan*1000:.1f}ms | Enhancement: {t_enh*1000:.1f}ms | Metrics: {t_met*1000:.1f}ms | Classifiers: {t_cls*1000:.1f}ms | GradCAM: {t_cam*1000:.1f}ms | Total: {total_time_s}s ({total_time_ms}ms)", flush=True)
-
-        # Step 7: Load validated empirical benchmark metrics from model evaluation results
+        # Step 8: Final Result Preparation & Benchmark Metrics
+        st8_start = datetime.datetime.now()
+        t0 = time.perf_counter()
         eval_metrics_for_class = {}
         eval_json_path = os.path.join(CHECKPOINT_DIR, "model_eval_results.json")
         if os.path.exists(eval_json_path):
@@ -611,6 +632,82 @@ def analyze_full_pipeline():
                     }
             except Exception as e:
                 print(f"[Benchmark Metrics Load Error] {e}")
+        t_prep = time.perf_counter() - t0
+        st8_end = datetime.datetime.now()
+
+        t_total = time.perf_counter() - t0_pipeline
+        total_time_s = round(t_total, 2)
+        total_time_ms = round(t_total * 1000, 1)
+
+        # Structured execution-time logs for the 8 actual pipeline stages
+        pipeline_logs = [
+            {
+                "stage": "Image validation",
+                "start_time": st1_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st1_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_val * 1000, 1),
+                "status": "Completed",
+                "details": val_res.get("status", "Verified Wright-Giemsa Microscopy")
+            },
+            {
+                "stage": "GAN + CBAM reconstruction",
+                "start_time": st2_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st2_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_gan * 1000, 1),
+                "status": "Completed",
+                "details": "Attention-Guided Denoising & Residual Restoration"
+            },
+            {
+                "stage": "Image enhancement and PSNR/SSIM/MAE calculation",
+                "start_time": st3_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st3_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_enh_met * 1000, 1),
+                "status": "Completed",
+                "details": f"PSNR: {metrics.get('psnr_db', metrics.get('psnr'))} dB, SSIM: {metrics.get('ssim')}, MAE: {metrics.get('mae')}"
+            },
+            {
+                "stage": "ResNet50 feature extraction",
+                "start_time": st4_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st4_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_resnet * 1000, 1),
+                "status": "Completed",
+                "details": f"Class: {resnet_res.get('prediction')} ({resnet_res.get('confidence')}%)"
+            },
+            {
+                "stage": "DenseNet121 feature extraction",
+                "start_time": st5_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st5_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_densenet * 1000, 1),
+                "status": "Completed",
+                "details": f"Class: {densenet_res.get('prediction')} ({densenet_res.get('confidence')}%)"
+            },
+            {
+                "stage": "Hybrid classification and prediction",
+                "start_time": st6_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st6_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_hybrid * 1000, 1),
+                "status": "Completed",
+                "details": f"Fused Prediction: {pred_class_name} ({pred_res.get('confidence')}%)"
+            },
+            {
+                "stage": "Grad-CAM generation",
+                "start_time": st7_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st7_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_cam * 1000, 1) if not is_normal_stage else 0,
+                "status": "Completed" if not is_normal_stage else "Skipped",
+                "details": "layer4 Bottleneck activation heatmap" if not is_normal_stage else "Skipped for Normal Control slide"
+            },
+            {
+                "stage": "Final result preparation",
+                "start_time": st8_start.strftime("%H:%M:%S.%f")[:-3],
+                "end_time": st8_end.strftime("%H:%M:%S.%f")[:-3],
+                "duration_ms": round(t_prep * 1000, 1),
+                "status": "Completed",
+                "details": "Empirical benchmark metrics & final payload assembled"
+            }
+        ]
+
+        print(f"[Pipeline Timing] Val: {t_val*1000:.1f}ms | GAN: {t_gan*1000:.1f}ms | Enh/Met: {t_enh_met*1000:.1f}ms | ResNet: {t_resnet*1000:.1f}ms | DenseNet: {t_densenet*1000:.1f}ms | Hybrid: {t_hybrid*1000:.1f}ms | Cam: {t_cam*1000:.1f}ms | Prep: {t_prep*1000:.1f}ms | Total: {total_time_s}s ({total_time_ms}ms)", flush=True)
 
         # Assemble comprehensive response payload
         response_payload = {

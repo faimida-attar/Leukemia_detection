@@ -9,7 +9,14 @@ import {
 import MetricCard from '../components/MetricCard';
 import { exportExcelReportApi, generatePdfReportApi } from '../services/api';
 
-export default function Results({ setActiveTab, analysisData }) {
+export default function Results({
+  setActiveTab,
+  analysisData,
+  batchLogs = [],
+  isBatchAnalyzing = false,
+  activeProcessingFileName = '',
+  openLogsDrawer
+}) {
   const [diffViewMode, setDiffViewMode] = useState('side-by-side');
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -426,9 +433,54 @@ export default function Results({ setActiveTab, analysisData }) {
           </p>
         </div>
 
-
       </div>
 
+      {/* Live Pipeline Execution Progress Banner (shown when analyzing/processing) */}
+      {(isBatchAnalyzing || isProcessing) && (
+        <div className="bg-white border-2 border-sky-400 rounded-3xl p-6 sm:p-8 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-200 shrink-0">
+                <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
+              </div>
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-50 text-sky-700 text-xs font-bold border border-sky-200 mb-1">
+                  <Activity className="w-3.5 h-3.5 text-sky-600 animate-pulse" />
+                  <span>Pipeline Execution Active</span>
+                </div>
+                <h2 className="text-xl font-extrabold text-slate-900">
+                  Processing: <span className="font-mono text-sky-700">{activeProcessingFileName || currentData?.selectedFileName || currentData?.image_information?.filename || 'Microscopy Slide'}</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Executing verified 5-stage reconstruction and deep learning prediction pipeline...
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2 px-4 py-2 bg-sky-50 rounded-2xl border border-sky-200 text-xs font-mono font-bold text-sky-900">
+                <Loader2 className="w-4 h-4 animate-spin text-sky-600" />
+                <span>Analyzing &amp; Predicting...</span>
+              </div>
+              {openLogsDrawer && (
+                <button
+                  type="button"
+                  onClick={openLogsDrawer}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-all cursor-pointer border border-slate-700 hover:border-slate-600 active:scale-95"
+                  title="Open real-time batch execution logs side panel"
+                >
+                  <FileText className="w-4 h-4 text-sky-400" />
+                  <span>View Logs</span>
+                  {batchLogs && batchLogs.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-sky-500 text-white text-[10px] font-black">
+                      {batchLogs.filter(b => b.status === 'completed').length}/{batchLogs.length}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Complete Research Pipeline Sequence - Placed prominently at top */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
@@ -521,6 +573,22 @@ export default function Results({ setActiveTab, analysisData }) {
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {openLogsDrawer && (
+                <button
+                  type="button"
+                  onClick={openLogsDrawer}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer border border-slate-700"
+                  title="View detailed batch logs and stage breakdown"
+                >
+                  <FileText className="w-3.5 h-3.5 text-sky-400" />
+                  <span>View Logs</span>
+                  {batchLogs && batchLogs.length > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-sky-500/30 text-sky-300 text-[10px] font-mono">
+                      {batchLogs.length}
+                    </span>
+                  )}
+                </button>
+              )}
               <button
                 onClick={handleDownloadReport}
                 disabled={isDownloadingPdf}

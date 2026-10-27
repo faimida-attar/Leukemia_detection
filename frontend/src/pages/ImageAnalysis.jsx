@@ -8,7 +8,14 @@ import ValidationBadge from '../components/ValidationBadge';
 
 import { analyzeCompletePipelineApi, validateImageApi } from '../services/api';
 
-export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
+export default function ImageAnalysis({
+  setActiveTab,
+  setAnalysisData,
+  isBatchAnalyzing = false,
+  startBatchAnalysis,
+  batchLogs = [],
+  openLogsDrawer
+}) {
   const MAX_IMAGES = 50;
 
   const [isDragOver, setIsDragOver] = useState(false);
@@ -109,7 +116,7 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
 
   // Step 2: Dedicated Upload & Analysis Action Handler (Fast Parallel Worker Queue)
   const runBatchAnalysis = async () => {
-    if (selectedFilesList.length === 0 || isAnalyzing) return;
+    if (selectedFilesList.length === 0 || isAnalyzing || isBatchAnalyzing) return;
 
     // Requirement: Skip invalid images in results page, only analyze valid images & predict
     const validItemsToProcess = selectedFilesList.filter(item => item.isValid !== false);
@@ -122,6 +129,12 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
     const skippedCount = selectedFilesList.length - validItemsToProcess.length;
     if (skippedCount > 0) {
       setInvalidNotice(`${skippedCount} non-microscopic slide(s) were skipped. Only valid blood-smear microscopy slides are being analyzed.`);
+    }
+
+    // Delegate batch execution to root App engine (preserves background processing across page switches)
+    if (startBatchAnalysis) {
+      startBatchAnalysis(selectedFilesList);
+      return;
     }
 
     setIsAnalyzing(true);
@@ -406,24 +419,40 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
               <p className="text-xs text-slate-500">
                 Ready to analyze <strong className="text-slate-800">{selectedCount} microscopy slides</strong> in fast parallel batch mode.
               </p>
-              <button
-                type="button"
-                onClick={runBatchAnalysis}
-                disabled={isAnalyzing}
-                className="w-full sm:w-auto px-8 py-3.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-extrabold text-sm rounded-xl shadow-lg shadow-sky-600/25 transition-all flex items-center justify-center gap-2"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing Batch in Parallel...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Upload & Analyze ({selectedCount} {selectedCount === 1 ? 'Slide' : 'Slides'})</span>
-                  </>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                {openLogsDrawer && batchLogs && batchLogs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={openLogsDrawer}
+                    className="w-full sm:w-auto px-5 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer border border-slate-700 hover:border-slate-600 active:scale-95"
+                    title="View batch execution logs side panel"
+                  >
+                    <FileText className="w-4 h-4 text-sky-400" />
+                    <span>View Logs</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-sky-500 text-white text-[10px] font-black">
+                      {batchLogs.filter(b => b.status === 'completed').length}/{batchLogs.length}
+                    </span>
+                  </button>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={runBatchAnalysis}
+                  disabled={isAnalyzing || isBatchAnalyzing}
+                  className="w-full sm:w-auto px-8 py-3.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-extrabold text-sm rounded-xl shadow-lg shadow-sky-600/25 transition-all flex items-center justify-center gap-2"
+                >
+                  {(isAnalyzing || isBatchAnalyzing) ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Processing Batch in Parallel...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Upload &amp; Analyze ({selectedCount} {selectedCount === 1 ? 'Slide' : 'Slides'})</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}
