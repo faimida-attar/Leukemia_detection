@@ -21,18 +21,15 @@ def calculate_reconstruction_metrics(original_pil, reconstructed_pil):
         orig_eval = original_pil.resize(eval_dim, Image.Resampling.LANCZOS)
         recon_eval = reconstructed_pil.resize(eval_dim, Image.Resampling.LANCZOS)
 
-    orig_arr = np.array(orig_eval.convert('RGB'), dtype=np.float32)
-    recon_arr = np.array(recon_eval.convert('RGB'), dtype=np.float32)
+    orig_u8 = np.asarray(orig_eval.convert('RGB'), dtype=np.uint8)
+    recon_u8 = np.asarray(recon_eval.convert('RGB'), dtype=np.uint8)
 
-    # MAE computation (normalized [0, 1] scale)
-    mae_val = float(np.mean(np.abs(orig_arr / 255.0 - recon_arr / 255.0)))
-
-    # Convert to uint8 for PSNR and SSIM
-    orig_u8 = np.uint8(np.clip(orig_arr, 0, 255))
-    recon_u8 = np.uint8(np.clip(recon_arr, 0, 255))
-
-    # MSE computation for pure mathematical fallback
-    mse_val = float(np.mean((orig_arr - recon_arr) ** 2))
+    # MAE & MSE computation with single float conversion
+    orig_f = orig_u8.astype(np.float32)
+    recon_f = recon_u8.astype(np.float32)
+    diff = orig_f - recon_f
+    mae_val = float(np.mean(np.abs(diff)) / 255.0)
+    mse_val = float(np.mean(diff ** 2))
 
     # PSNR computation
     if mse_val == 0:

@@ -131,7 +131,7 @@ class LeukemiaClassifier:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def predict(self, pil_image, filename=None, eval_mode=False):
+    def predict(self, pil_image=None, filename=None, eval_mode=False, tensor_img=None):
         """
         Run classification on PIL Image using the loaded deep learning model (.h5 or .pth).
         Returns top prediction (ALL, AML, CLL, CML, Normal), full probability breakdown, and confidence score.
@@ -152,8 +152,10 @@ class LeukemiaClassifier:
             for idx, cls in enumerate(LeukemiaResNet50.CLASSES):
                 prob_dict[cls] = round(float(probs[idx]) * 100.0, 1)
         else:
-            tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
-            with torch.no_grad():
+            if tensor_img is None and pil_image is not None:
+                tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
+
+            with torch.inference_mode():
                 logits = self.model(tensor_img)
                 # Apply Temperature Scaling (T=0.75) for balanced confidence
                 T = 0.75 

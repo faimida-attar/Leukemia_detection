@@ -40,12 +40,10 @@ def _to_float(v, default=None):
 
 
 def _clean_conf(c_val):
-    """Ensure confidence is expressed on a 0-100 scale."""
+    """Return numeric confidence or probability as-is without multiplying by 100."""
     v = _to_float(c_val)
     if v is None:
         return None
-    if 0.0 < v <= 1.0:
-        return round(float(v * 100.0), 1)
     return round(float(v), 1)
 
 
@@ -54,20 +52,8 @@ def generate_excel_report(analysis_data, output_path):
     Generate a research evaluation Excel (.xlsx) report matching the exact visual specification:
     - Title banner at Row 1
     - Table header at Row 4 with Navy fill (#1E3A8A) and white bold text
-    - 12 Columns:
-        1. Slide #
-        2. Filename
-        3. Validation
-        4. Dimensions
-        5. Orig Size (KB)
-        6. Recon Size (KB)
-        7. PSNR (dB)
-        8. SSIM
-        9. MAE
-        10. Hybrid Pred
-        11. Hybrid Conf (%)
-        12. Full Disease Subtype
-    - Dynamic data rows with proper numerical formatting
+    - 17 Columns including Final Fused Class Probabilities (ALL, AML, CLL, CML, Normal)
+    - Dynamic data rows with proper numerical formatting (values added as-is without multiplying by 100)
     - AVERAGE / OVERALL SUMMARY row with soft ice-blue fill (#EEF5FE) and average metrics
     """
     # -------------------------------------------------------------------------
@@ -143,16 +129,21 @@ def generate_excel_report(analysis_data, output_path):
     # -------------------------------------------------------------------------
     columns = [
         {"header": "Slide #", "align": align_center, "width": 10},
-        {"header": "Filename", "align": align_left, "width": 66},
+        {"header": "Filename", "align": align_left, "width": 55},
         {"header": "Validation", "align": align_center, "width": 13},
         {"header": "Dimensions", "align": align_center, "width": 15},
-        {"header": "Orig Size (KB)", "align": align_right, "width": 16, "fmt": "#,##0.0"},
-        {"header": "Recon Size (KB)", "align": align_right, "width": 16, "fmt": "#,##0.0"},
-        {"header": "PSNR (dB)", "align": align_right, "width": 13, "fmt": "0.00"},
-        {"header": "SSIM", "align": align_right, "width": 13, "fmt": "0.0000"},
-        {"header": "MAE", "align": align_right, "width": 13, "fmt": "0.0000"},
+        {"header": "Orig Size (KB)", "align": align_right, "width": 15, "fmt": "#,##0.0"},
+        {"header": "Recon Size (KB)", "align": align_right, "width": 15, "fmt": "#,##0.0"},
+        {"header": "PSNR (dB)", "align": align_right, "width": 12, "fmt": "0.00"},
+        {"header": "SSIM", "align": align_right, "width": 12, "fmt": "0.0000"},
+        {"header": "MAE", "align": align_right, "width": 12, "fmt": "0.0000"},
         {"header": "Hybrid Pred", "align": align_center, "width": 14},
         {"header": "Hybrid Conf (%)", "align": align_right, "width": 16, "fmt": '0.0"%"'},
+        {"header": "ALL (%)", "align": align_right, "width": 11, "fmt": '0.0"%"'},
+        {"header": "AML (%)", "align": align_right, "width": 11, "fmt": '0.0"%"'},
+        {"header": "CLL (%)", "align": align_right, "width": 11, "fmt": '0.0"%"'},
+        {"header": "CML (%)", "align": align_right, "width": 11, "fmt": '0.0"%"'},
+        {"header": "Normal (%)", "align": align_right, "width": 13, "fmt": '0.0"%"'},
         {"header": "Full Disease Subtype", "align": align_left, "width": 32}
     ]
 
@@ -171,6 +162,12 @@ def generate_excel_report(analysis_data, output_path):
     valid_psnrs = []
     valid_ssims = []
     valid_maes = []
+    valid_confs = []
+    valid_alls = []
+    valid_amls = []
+    valid_clls = []
+    valid_cmls = []
+    valid_normals = []
 
     current_row = 5
 
@@ -285,7 +282,7 @@ def generate_excel_report(analysis_data, output_path):
         if mae_val is not None and val_text == "Valid":
             valid_maes.append(mae_val)
 
-        # 6. Hybrid Prediction & Confidence
+        # 6. Hybrid Prediction & Confidence (as-is, do not multiply by 100)
         pred_cls = (
             item.get("hybrid_pred") or
             item.get("hybrid", {}).get("prediction") or
@@ -303,7 +300,33 @@ def generate_excel_report(analysis_data, output_path):
         conf_pct = _clean_conf(raw_conf)
         conf_cell = conf_pct if conf_pct is not None else "N/A"
 
-        # 7. Full Disease Subtype
+        # 7. Final Fused Probabilities Breakdown (as-is, do not multiply by 100)
+        probs = (
+            item.get("hybrid", {}).get("probabilities") or
+            item.get("classification", {}).get("probabilities") or
+            item.get("probabilities") or {}
+        )
+        p_all = _clean_conf(probs.get("ALL"))
+        p_aml = _clean_conf(probs.get("AML"))
+        p_cll = _clean_conf(probs.get("CLL"))
+        p_cml = _clean_conf(probs.get("CML"))
+        p_normal = _clean_conf(probs.get("Normal"))
+
+        if val_text == "Valid":
+            if conf_pct is not None:
+                valid_confs.append(conf_pct)
+            if p_all is not None:
+                valid_alls.append(p_all)
+            if p_aml is not None:
+                valid_amls.append(p_aml)
+            if p_cll is not None:
+                valid_clls.append(p_cll)
+            if p_cml is not None:
+                valid_cmls.append(p_cml)
+            if p_normal is not None:
+                valid_normals.append(p_normal)
+
+        # 8. Full Disease Subtype
         full_subtype = DISEASE_FULL_NAMES.get(pred_cls, pred_cls)
 
         row_values = [
@@ -318,6 +341,11 @@ def generate_excel_report(analysis_data, output_path):
             mae_cell,
             pred_cls,
             conf_cell,
+            p_all if p_all is not None else "N/A",
+            p_aml if p_aml is not None else "N/A",
+            p_cll if p_cll is not None else "N/A",
+            p_cml if p_cml is not None else "N/A",
+            p_normal if p_normal is not None else "N/A",
             full_subtype
         ]
 
@@ -368,6 +396,37 @@ def generate_excel_report(analysis_data, output_path):
         mae_avg_cell = ws.cell(row=summary_row, column=9, value=avg_mae)
         mae_avg_cell.alignment = align_right
         mae_avg_cell.number_format = "0.0000"
+
+    if valid_confs:
+        avg_conf = round(sum(valid_confs) / len(valid_confs), 1)
+        conf_avg_cell = ws.cell(row=summary_row, column=11, value=avg_conf)
+        conf_avg_cell.alignment = align_right
+        conf_avg_cell.number_format = '0.0"%"'
+
+    if valid_alls:
+        cell = ws.cell(row=summary_row, column=12, value=round(sum(valid_alls) / len(valid_alls), 1))
+        cell.alignment = align_right
+        cell.number_format = '0.0"%"'
+
+    if valid_amls:
+        cell = ws.cell(row=summary_row, column=13, value=round(sum(valid_amls) / len(valid_amls), 1))
+        cell.alignment = align_right
+        cell.number_format = '0.0"%"'
+
+    if valid_clls:
+        cell = ws.cell(row=summary_row, column=14, value=round(sum(valid_clls) / len(valid_clls), 1))
+        cell.alignment = align_right
+        cell.number_format = '0.0"%"'
+
+    if valid_cmls:
+        cell = ws.cell(row=summary_row, column=15, value=round(sum(valid_cmls) / len(valid_cmls), 1))
+        cell.alignment = align_right
+        cell.number_format = '0.0"%"'
+
+    if valid_normals:
+        cell = ws.cell(row=summary_row, column=16, value=round(sum(valid_normals) / len(valid_normals), 1))
+        cell.alignment = align_right
+        cell.number_format = '0.0"%"'
 
     # -------------------------------------------------------------------------
     # 7. Column Widths

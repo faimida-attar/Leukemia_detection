@@ -19,6 +19,7 @@ backend/uploads/
 backend/results/
 backend/dataset_cache_224/
 backend/scratch/
+scratch/
 
 # Node & Frontend
 node_modules/

@@ -219,7 +219,7 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         "AML": "Acute Myeloid Leukemia",
         "CLL": "Chronic Lymphocytic Leukemia",
         "CML": "Chronic Myeloid Leukemia",
-        "Normal": "Normal Non-Leukemic Smear"
+        "Normal": "Normal Healthy Control"
     }
     full_name = cls_res.get('full_name') or disease_map.get(prediction, prediction)
     c_raw = (
@@ -227,13 +227,16 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         analysis_results.get('hybrid', {}).get('confidence') or
         cls_res.get('confidence', 0.0)
     )
-    confidence = float(c_raw * 100.0 if (isinstance(c_raw, (int, float)) and c_raw <= 1.0 and c_raw > 0) else (c_raw or 0.0))
+    # User requirement: Do NOT multiply with 100 as it is value add
+    confidence = float(c_raw or 0.0)
 
     cls_data = [
+        [Paragraph("<b>Proposed Fusion Model:</b>", normal_style),
+         Paragraph("<b>Hybrid ResNet50 + DenseNet121</b>", normal_style)],
         [Paragraph("<b>Predicted Leukemia Type:</b>", normal_style),
          Paragraph(f"<font color='#1e40af' size=10><b>{prediction} ({full_name})</b></font>", normal_style)],
-        [Paragraph("<b>Hybrid Model Confidence Score:</b>", normal_style),
-         Paragraph(f"<b>{confidence:.2f}%</b>", normal_style)]
+        [Paragraph("<b>Confidence:</b>", normal_style),
+         Paragraph(f"<b>{confidence:.1f}%</b>", normal_style)]
     ]
     cls_table = Table(cls_data, colWidths=[180, 368])
     cls_table.setStyle(TableStyle([
@@ -245,13 +248,14 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     story.append(cls_table)
     story.append(Spacer(1, 6))
 
-    # Multiclass Probabilities Breakdown Table
+    # FINAL FUSED PROBABILITIES Table
     probs = (
         analysis_results.get('hybrid', {}).get('probabilities') or
         cls_res.get('probabilities') or
         analysis_results.get('probabilities', {})
     )
     if probs:
+        story.append(Paragraph("<b>FINAL FUSED PROBABILITIES</b>", heading2_style))
         prob_header = [
             Paragraph("<b>Class</b>", normal_style),
             Paragraph("<b>Full Class Description</b>", normal_style),
@@ -263,12 +267,14 @@ def generate_pdf_report(analysis_results, output_pdf_path):
             "AML": "Acute Myeloid Leukemia",
             "CLL": "Chronic Lymphocytic Leukemia",
             "CML": "Chronic Myeloid Leukemia",
-            "Normal": "Normal Non-Leukemic Smear"
+            "Normal": "Normal Healthy Control"
         }
         for k in ["ALL", "AML", "CLL", "CML", "Normal"]:
             if k in probs:
                 v = probs[k]
-                p_str = f"{v*100.0:.2f}%" if v <= 1.0 else f"{v:.2f}%"
+                p_val = float(v) if isinstance(v, (int, float)) else 0.0
+                # User requirement: Do NOT multiply with 100 as it is value add
+                p_str = f"{p_val:.1f}%"
                 prob_rows.append([
                     Paragraph(f"<b>{k}</b>", normal_style),
                     Paragraph(class_full_names.get(k, k), normal_style),
@@ -277,7 +283,8 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         # Include any extra classes if present
         for k, v in probs.items():
             if k not in ["ALL", "AML", "CLL", "CML", "Normal"]:
-                p_str = f"{v*100.0:.2f}%" if v <= 1.0 else f"{v:.2f}%"
+                p_val = float(v) if isinstance(v, (int, float)) else 0.0
+                p_str = f"{p_val:.1f}%"
                 prob_rows.append([
                     Paragraph(f"<b>{k}</b>", normal_style),
                     Paragraph(class_full_names.get(k, k), normal_style),

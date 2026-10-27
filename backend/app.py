@@ -1,6 +1,7 @@
 import os
 import io
 import cv2
+import time
 import uuid
 import base64
 import datetime
@@ -13,6 +14,16 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import pymongo
 import threading
+
+# Optimize PyTorch CPU inference threads
+torch.set_num_threads(min(4, os.cpu_count() or 4))
+
+# Shared 224x224 ImageNet normalization transform for ResNet50, DenseNet121, Hybrid, and Grad-CAM
+TRANSFORM_224 = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
 # Load environment variables from .env
 load_dotenv()
@@ -120,13 +131,12 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
         fused_np = recon_np + 0.95 * high_pass
         fused_np = np.clip(fused_np, 0, 255)
 
-        # Staining & Contrast Alignment: match color channels and contrast to original slide
-        for c in range(3):
-            m_orig, s_orig = np.mean(orig_np[:, :, c]), np.std(orig_np[:, :, c])
-            m_fused, s_fused = np.mean(fused_np[:, :, c]), np.std(fused_np[:, :, c])
-            norm = (fused_np[:, :, c] - m_fused) / (s_fused + 1e-5)
-            fused_np[:, :, c] = norm * s_orig + m_orig
-
+        # Staining & Contrast Alignment: match color channels and contrast to original slide (vectorized)
+        m_orig = orig_np.mean(axis=(0, 1), keepdims=True)
+        s_orig = orig_np.std(axis=(0, 1), keepdims=True)
+        m_fused = fused_np.mean(axis=(0, 1), keepdims=True)
+        s_fused = fused_np.std(axis=(0, 1), keepdims=True)
+        fused_np = (fused_np - m_fused) / (s_fused + 1e-5) * s_orig + m_orig
         fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
         recon_base = Image.fromarray(fused_np)
 
@@ -439,8 +449,13 @@ def analyze_full_pipeline():
 
         orig_b64 = f"data:{orig_mime};base64,{base64.b64encode(orig_raw_bytes).decode('utf-8')}"
 
+        t0_pipeline = time.perf_counter()
+
         # Step 1: Image Validation (Strict Blood-Smear Microscopy Verification)
+        t0 = time.perf_counter()
         val_res = validator.validate(pil_img, cv2_img)
+        t_val = time.perf_counter() - t0
+
         if not val_res["is_valid"]:
             return jsonify({
                 "is_valid": False,
@@ -460,7 +475,12 @@ def analyze_full_pipeline():
                     "original": orig_b64,
                     "reconstructed": None,
                     "gradcam": None
-                }
+                },
+                "pipeline_logs": [
+                    {"stage": "Image Validation", "time_ms": round(t_val * 1000, 1), "status": "Rejected", "details": val_res.get("reason", "Invalid Non-Microscopy Slide")}
+                ],
+                "total_execution_time_seconds": round(t_val, 2),
+                "total_execution_time_ms": round(t_val * 1000, 1)
             }), 200
 
         # Save original session image in its native uploaded format
@@ -470,38 +490,50 @@ def analyze_full_pipeline():
         with open(orig_path, "wb") as f_orig:
             f_orig.write(orig_raw_bytes)
 
-        # Step 2: GAN + CBAM Reconstruction & Image Enhancement (No Compression)
+        # Step 2: GAN + CBAM Reconstruction (Attention-Guided Noise Reduction)
+        t0 = time.perf_counter()
         transform_to_t = transforms.ToTensor()
         img_tensor = transform_to_t(pil_img.resize((256, 256))).unsqueeze(0)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             recon_tensor = gan_generator(img_tensor)[0]
 
         recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
         recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
         recon_pil = Image.fromarray(recon_np)
+        t_gan = time.perf_counter() - t0
 
-        # Rescale output back to original image dimensions and apply unsharp masking
+        # Step 3: High-Frequency Acuity & Edge Restoration
+        t0 = time.perf_counter()
         recon_pil = enhance_reconstructed_image(recon_pil, orig_w, orig_h, orig_pil=pil_img)
+        t_enh = time.perf_counter() - t0
 
         recon_path = os.path.join(RESULTS_DIR, f"{session_id}_recon.png")
         recon_pil.save(recon_path)
         recon_file_size_bytes = os.path.getsize(recon_path)
         recon_file_size_formatted = format_file_size(recon_file_size_bytes)
 
-        # Step 3: Reconstruction Quality Metrics (PSNR, SSIM, MAE)
+        # Step 4: Reconstruction Quality Metrics (PSNR, SSIM, MAE)
+        t0 = time.perf_counter()
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
+        t_met = time.perf_counter() - t0
 
-        # Step 4: Leukemia Classification (ResNet50, DenseNet121, and Hybrid Feature Fusion)
+        # Step 5: Leukemia Classification (ResNet50, DenseNet121, and Hybrid Feature Fusion)
+        # Reuse precomputed 224x224 ImageNet tensor across all models & Grad-CAM
+        t0 = time.perf_counter()
+        input_tensor_224 = TRANSFORM_224(pil_img).unsqueeze(0)
+
         with pipeline_lock:
-            with torch.no_grad():
-                resnet_res = resnet_classifier.predict(pil_img, filename=filename)
-                densenet_res = densenet_classifier.predict(pil_img, filename=filename)
-                hybrid_res = hybrid_classifier.predict(pil_img, filename=filename)
+            with torch.inference_mode():
+                resnet_res = resnet_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
+                densenet_res = densenet_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
+                hybrid_res = hybrid_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
 
             pred_res = hybrid_res
+            t_cls = time.perf_counter() - t0
 
-            # Step 5: Grad-CAM Explainability on the Reconstructed Image
+            # Step 6: Grad-CAM Explainability on the Reconstructed Image
+            t0 = time.perf_counter()
             gradcam_b64 = None
             gradcam_path = None
 
@@ -519,13 +551,7 @@ def analyze_full_pipeline():
                     class_to_idx = {c: i for i, c in enumerate(hybrid_classifier.model.CLASSES)}
                     target_class_idx = class_to_idx.get(pred_class_name, 0)
 
-                    transform_resnet = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                    ])
-                    input_tensor = transform_resnet(pil_img).unsqueeze(0)
-                    heatmap, target_idx = grad_cam_eval.generate_heatmap(input_tensor, target_class_idx=target_class_idx)
+                    heatmap, target_idx = grad_cam_eval.generate_heatmap(input_tensor_224, target_class_idx=target_class_idx)
 
                     cv2_recon = cv2.cvtColor(np.array(recon_pil), cv2.COLOR_RGB2BGR)
                     blended, colormap = grad_cam_eval.overlay_heatmap(heatmap, cv2_recon)
@@ -544,8 +570,25 @@ def analyze_full_pipeline():
                 finally:
                     if grad_cam_eval is not None:
                         grad_cam_eval.remove_hooks()
+            t_cam = time.perf_counter() - t0
 
-        # Step 6: Load validated empirical benchmark metrics from model evaluation results
+        t_total = time.perf_counter() - t0_pipeline
+        total_time_s = round(t_total, 2)
+        total_time_ms = round(t_total * 1000, 1)
+
+        # Structured execution-time logs for each pipeline stage
+        pipeline_logs = [
+            {"stage": "Image Validation", "time_ms": round(t_val * 1000, 1), "status": "Completed", "details": val_res.get("status", "Verified")},
+            {"stage": "GAN + CBAM Reconstruction", "time_ms": round(t_gan * 1000, 1), "status": "Completed", "details": "Attention-Guided Denoising"},
+            {"stage": "Resolution Acuity Enhancement", "time_ms": round(t_enh * 1000, 1), "status": "Completed", "details": f"{orig_w}x{orig_h} Native Target"},
+            {"stage": "PSNR / SSIM / MAE Calculation", "time_ms": round(t_met * 1000, 1), "status": "Completed", "details": f"PSNR: {metrics.get('psnr_db', metrics.get('psnr'))} dB, SSIM: {metrics.get('ssim')}"},
+            {"stage": "ResNet50 + DenseNet121 Hybrid Prediction", "time_ms": round(t_cls * 1000, 1), "status": "Completed", "details": f"{pred_class_name} ({pred_res.get('confidence')}%)"},
+            {"stage": "Grad-CAM Explainability", "time_ms": round(t_cam * 1000, 1), "status": "Completed" if not is_normal_stage else "Skipped (Normal Control)", "details": "layer4 Bottleneck activation" if not is_normal_stage else "N/A for Normal"},
+        ]
+
+        print(f"[Pipeline Timing] Validation: {t_val*1000:.1f}ms | GAN+CBAM: {t_gan*1000:.1f}ms | Enhancement: {t_enh*1000:.1f}ms | Metrics: {t_met*1000:.1f}ms | Classifiers: {t_cls*1000:.1f}ms | GradCAM: {t_cam*1000:.1f}ms | Total: {total_time_s}s ({total_time_ms}ms)", flush=True)
+
+        # Step 7: Load validated empirical benchmark metrics from model evaluation results
         eval_metrics_for_class = {}
         eval_json_path = os.path.join(CHECKPOINT_DIR, "model_eval_results.json")
         if os.path.exists(eval_json_path):
@@ -575,6 +618,9 @@ def analyze_full_pipeline():
             "is_valid": True,
             "validation_status": val_res["status"],
             "validation_details": val_res,
+            "pipeline_logs": pipeline_logs,
+            "total_execution_time_seconds": total_time_s,
+            "total_execution_time_ms": total_time_ms,
             "image_information": {
                 "filename": filename,
                 "original_dimensions": f"{orig_w} x {orig_h}",
@@ -638,6 +684,9 @@ def analyze_full_pipeline():
                     "densenet121": densenet_res,
                     "hybrid": hybrid_res,
                     "validation_details": val_res,
+                    "pipeline_logs": pipeline_logs,
+                    "total_execution_time_seconds": total_time_s,
+                    "total_execution_time_ms": total_time_ms,
                     "image_paths": {
                         "original": orig_path,
                         "reconstructed": recon_path,
@@ -660,6 +709,7 @@ def analyze_full_pipeline():
             "saved": db_saved,
             "error": db_error
         }
+        response_payload["db_saved"] = db_saved
 
         return jsonify(response_payload)
     except Exception as pipeline_err:

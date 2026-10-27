@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import {
   Upload, Image as ImageIcon, CheckCircle2, XCircle, Sliders,
-  Sparkles, AlertCircle, Loader2, RefreshCw, FileText, Check, Trash2, Plus
+  Sparkles, AlertCircle, Loader2, RefreshCw, FileText, Check, Trash2, Plus,
+  Activity, Clock, ShieldCheck, Cpu, Eye
 } from 'lucide-react';
 import ValidationBadge from '../components/ValidationBadge';
 
@@ -21,6 +22,8 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
   // Pipeline processing state
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [pipelineElapsedSeconds, setPipelineElapsedSeconds] = useState(0);
+  const [activeFileName, setActiveFileName] = useState('');
 
   const fileInputRef = useRef(null);
 
@@ -108,98 +111,88 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
   const runBatchAnalysis = async () => {
     if (selectedFilesList.length === 0 || isAnalyzing) return;
 
-    setIsAnalyzing(true);
-    setErrorMessage(null);
+    // Requirement: Skip invalid images in results page, only analyze valid images & predict
+    const validItemsToProcess = selectedFilesList.filter(item => item.isValid !== false);
 
-    // Strict Pre-Analysis Validation: Confirm validity for all files before any pipeline execution
-    let currentFiles = selectedFilesList;
-    try {
-      currentFiles = await Promise.all(
-        selectedFilesList.map(async (item) => {
-          if (item.isValid === false) return item;
-          try {
-            const formData = new FormData();
-            formData.append('image', item.file);
-            const valRes = await validateImageApi(formData);
-            const isValid = valRes?.is_valid === true && !valRes?.status?.toLowerCase().includes('invalid');
-            return { ...item, isValid, validationReason: valRes?.reason };
-          } catch (e) {
-            return item;
-          }
-        })
-      );
-      setSelectedFilesList(currentFiles);
-    } catch (e) {
-      // Proceed with current states
-    }
-
-    // Filter out invalid images from analysis (Strict Validation Guard)
-    const validSelection = currentFiles.filter(item => item.isValid === true);
-    const rejectedCount = currentFiles.length - validSelection.length;
-
-    if (rejectedCount > 0) {
-      setInvalidNotice(`${rejectedCount} invalid non-microscopy image(s) detected and rejected.`);
-    } else {
-      setInvalidNotice(null);
-    }
-
-    if (validSelection.length === 0) {
-      setIsAnalyzing(false);
-      setErrorMessage('Validation rejected: Uploaded image is not a genuine blood-smear microscopy slide. Leukemia prediction and reconstruction prevented.');
+    if (validItemsToProcess.length === 0) {
+      setErrorMessage("No valid blood-smear microscopy slides found. All selected images were rejected during cytology validation. Only genuine blood smear slides can be analyzed.");
       return;
     }
 
-    // 1. Instantly prepare initial placeholders for ONLY VALID selected files
-    const initialResults = validSelection.map((item, idx) => ({
-      id: item.id || idx,
-      selectedFileName: item.name,
-      previewUrl: item.previewUrl,
+    const skippedCount = selectedFilesList.length - validItemsToProcess.length;
+    if (skippedCount > 0) {
+      setInvalidNotice(`${skippedCount} non-microscopic slide(s) were skipped. Only valid blood-smear microscopy slides are being analyzed.`);
+    }
+
+    setIsAnalyzing(true);
+    setErrorMessage(null);
+    setPipelineElapsedSeconds(0);
+
+    const timer = setInterval(() => {
+      setPipelineElapsedSeconds((s) => s + 0.5);
+    }, 500);
+
+    const totalToProcess = validItemsToProcess.length;
+
+    // Requirement: When upload button is clicked, redirect to Results page immediately and show pipeline
+    const initialPlaceholders = validItemsToProcess.map((item, idx) => ({
       status: 'processing',
-      is_valid: true
+      previewUrl: item.previewUrl,
+      selectedFileName: item.name,
+      file_size_formatted: item.size,
+      file_size_bytes: item.file.size,
+      is_valid: true,
+      origIdx: idx
     }));
 
-    // 2. Immediately set analysisData and navigate to Results tab (0ms delay!)
     if (setAnalysisData) {
-      setAnalysisData(initialResults);
+      setAnalysisData(initialPlaceholders);
     }
     setActiveTab('results');
 
-    // 3. Parallel Worker Queue with Concurrency = 4
-    const CONCURRENCY = 4;
-    const totalToProcess = validSelection.length;
-    let completedResults = [...initialResults];
+    let completedResults = [...initialPlaceholders];
     let currentIndex = 0;
+    const CONCURRENCY = 2; // Stable CPU concurrency
 
     const processItem = async (index) => {
-      const item = validSelection[index];
+      const item = validItemsToProcess[index];
       const file = item.file;
+      setActiveFileName(item.name);
+      setProcessingProgress(`Analyzing ${index + 1} of ${totalToProcess}: ${item.name}`);
 
       const formData = new FormData();
       formData.append('image', file);
 
-      let resultData;
-      resultData = await analyzeCompletePipelineApi(formData);
+      try {
+        const resultData = await analyzeCompletePipelineApi(formData);
+        const isItemValid = resultData?.is_valid === true && !resultData?.status?.toLowerCase().includes('invalid') && !resultData?.prediction?.toLowerCase().includes('invalid');
 
-      const isItemValid = resultData?.is_valid === true && !resultData?.status?.toLowerCase().includes('invalid') && !resultData?.prediction?.toLowerCase().includes('invalid');
+        if (isItemValid) {
+          const itemResult = {
+            ...(resultData || {}),
+            previewUrl: item.previewUrl,
+            selectedFileName: item.name,
+            file_size_bytes: file.size,
+            file_size_formatted: item.size,
+            status: 'completed',
+            is_valid: true
+          };
+          completedResults[index] = itemResult;
+        } else {
+          // If rejected by backend, skip it
+          completedResults[index] = null;
+        }
 
-      const itemResult = {
-        ...(resultData || {}),
-        previewUrl: item.previewUrl,
-        selectedFileName: item.name,
-        file_size_bytes: file.size,
-        file_size_formatted: item.size,
-        status: 'completed',
-        is_valid: isItemValid
-      };
-
-      completedResults[index] = itemResult;
-      setProcessedImages((prev) => [...prev, itemResult]);
-
-      // Only pass strictly valid processed items to Results page
-      const validOnlyResults = completedResults.filter(res => res?.is_valid === true);
-
-      if (setAnalysisData) {
-        setAnalysisData([...validOnlyResults]);
+        // Live update Results page as each valid item completes
+        if (setAnalysisData) {
+          const currentValid = completedResults.filter(Boolean);
+          if (currentValid.length > 0) {
+            setAnalysisData([...currentValid]);
+          }
+        }
+      } catch (err) {
+        console.error('Analysis error for slide', item.name, err);
+        completedResults[index] = null;
       }
     };
 
@@ -220,8 +213,15 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
     } catch (err) {
       setErrorMessage(err.message || 'Batch pipeline execution failed.');
     } finally {
+      clearInterval(timer);
       setIsAnalyzing(false);
       setProcessingProgress('');
+
+      // Pass only valid completed items to Results page
+      const finalItems = completedResults.filter(Boolean);
+      if (setAnalysisData && finalItems.length > 0) {
+        setAnalysisData(finalItems);
+      }
     }
   };
 
@@ -429,6 +429,69 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
         )}
 
       </section>
+
+      {/* Live Pipeline Execution Progress Monitor */}
+      {isAnalyzing && (
+        <section className="bg-white border-2 border-sky-400 rounded-3xl p-6 sm:p-8 shadow-md space-y-5 transition-all">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-50 text-sky-700 text-xs font-bold border border-sky-200 mb-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                <span>Live Pipeline Execution</span>
+              </div>
+              <h2 className="text-xl font-extrabold text-slate-900">
+                Processing: <span className="text-sky-700 font-mono">{activeFileName || 'Microscopy Slide'}</span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Executing verified 5-stage reconstruction and deep learning pipeline...
+              </p>
+            </div>
+            <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-2xl border border-slate-200">
+              <Clock className="w-4 h-4 text-sky-600" />
+              <span className="text-xs font-mono font-bold text-slate-800">
+                Elapsed: {pipelineElapsedSeconds.toFixed(1)}s
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+            <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/70 text-center space-y-1">
+              <ShieldCheck className="w-5 h-5 text-sky-700 mx-auto" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800 block">Stage 1</span>
+              <span className="text-xs font-black text-slate-900 block">Cytology Validation</span>
+              <span className="text-[10px] text-slate-600 block">Stain signature check</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/70 text-center space-y-1">
+              <Sparkles className="w-5 h-5 text-sky-700 mx-auto" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800 block">Stage 2</span>
+              <span className="text-xs font-black text-slate-900 block">GAN + CBAM</span>
+              <span className="text-[10px] text-slate-600 block">Attention denoising</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/70 text-center space-y-1">
+              <Activity className="w-5 h-5 text-sky-700 mx-auto" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800 block">Stage 3</span>
+              <span className="text-xs font-black text-slate-900 block">Acuity & Metrics</span>
+              <span className="text-[10px] text-slate-600 block">PSNR / SSIM / MAE</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/70 text-center space-y-1">
+              <Cpu className="w-5 h-5 text-sky-700 mx-auto" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800 block">Stage 4</span>
+              <span className="text-xs font-black text-slate-900 block">Hybrid Model</span>
+              <span className="text-[10px] text-slate-600 block">ResNet50 + DenseNet</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/70 text-center space-y-1">
+              <Eye className="w-5 h-5 text-sky-700 mx-auto" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800 block">Stage 5</span>
+              <span className="text-xs font-black text-slate-900 block">Grad-CAM Map</span>
+              <span className="text-[10px] text-slate-600 block">Blast activation heatmap</span>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Invalid Excluded Notice Banner */}
       {invalidNotice && (

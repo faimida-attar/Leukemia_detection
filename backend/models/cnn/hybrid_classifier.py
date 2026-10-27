@@ -106,15 +106,16 @@ class HybridLeukemiaClassifier:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def predict(self, pil_image, filename=None, eval_mode=False):
+    def predict(self, pil_image=None, filename=None, eval_mode=False, tensor_img=None):
         """
         Run hybrid classification on PIL Image.
         Returns predicted class, full probabilities, confidence score, and feature info.
         """
         prob_dict = {}
-        tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
+        if tensor_img is None and pil_image is not None:
+            tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self.model(tensor_img)
             # Apply Temperature Scaling (T=0.75) for balanced confidence
             T = 0.75

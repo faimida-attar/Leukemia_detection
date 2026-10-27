@@ -87,15 +87,17 @@ class DenseNet121Classifier:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def predict(self, pil_image, filename=None, eval_mode=False):
+    def predict(self, pil_image=None, filename=None, eval_mode=False, tensor_img=None):
         """
         Run classification on PIL Image using DenseNet121.
         Returns top prediction, full probability breakdown, and confidence score.
         """
         prob_dict = {}
 
-        tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
-        with torch.no_grad():
+        if tensor_img is None and pil_image is not None:
+            tensor_img = self.transform(pil_image.convert("RGB")).unsqueeze(0)
+
+        with torch.inference_mode():
             logits = self.model(tensor_img)
             # Apply Temperature Scaling (T=0.75) for balanced confidence
             T = 0.75

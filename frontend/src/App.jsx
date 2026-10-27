@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import ImageAnalysis from './pages/ImageAnalysis';
 import Results from './pages/Results';
 import ModelPerformance from './pages/ModelPerformance';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('analysis');
@@ -48,7 +49,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1">
-        {renderActivePage()}
+        <ErrorBoundary onNavigateHome={() => setActiveTab('analysis')}>
+          {renderActivePage()}
+        </ErrorBoundary>
       </main>
     </div>
   );
