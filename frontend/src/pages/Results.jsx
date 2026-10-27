@@ -4,7 +4,7 @@ import {
   Layers, BarChart3, Activity, Eye, Printer, Sparkles, ArrowRight, Info,
   Maximize2, X, SlidersHorizontal, RefreshCw, ZoomIn, Image as ImageIcon, ExternalLink,
   ChevronLeft, ChevronRight, Table, Loader2, Upload, XCircle, FileSpreadsheet, AlertTriangle,
-  Clock, Zap, Timer
+  Clock
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import { exportExcelReportApi, generatePdfReportApi } from '../services/api';
@@ -745,133 +745,6 @@ export default function Results({ setActiveTab, analysisData }) {
       {/* Anchor for Smooth Scrolling to Active Detailed Result */}
       <div id="active-result-section"></div>
 
-      {/* Pipeline Execution Speed & Stage Timing Breakdown */}
-      {(() => {
-        const dynamicPipelineLogs = (currentData?.pipeline_logs && currentData.pipeline_logs.length > 0)
-          ? currentData.pipeline_logs
-          : (!isProcessing && currentData && currentData.is_valid !== false ? [
-              {
-                stage: 'Image Validation',
-                status: 'Completed',
-                details: currentData?.validation_details?.status || 'Valid Microscopy Image',
-                time_ms: currentData?.validation_details?.time_ms || 120
-              },
-              {
-                stage: 'GAN + CBAM Reconstruction',
-                status: 'Completed',
-                details: 'Attention-Guided Denoising',
-                time_ms: Math.round((currentData?.total_execution_time_ms || 3000) * 0.25)
-              },
-              {
-                stage: 'Resolution Acuity Enhancement',
-                status: 'Completed',
-                details: `${currentData?.image_information?.original_dimensions || origRes} Native Target`,
-                time_ms: Math.round((currentData?.total_execution_time_ms || 3000) * 0.15)
-              },
-              {
-                stage: 'PSNR / SSIM / MAE Calculation',
-                status: 'Completed',
-                details: `PSNR: ${psnrVal} dB, SSIM: ${ssimVal}`,
-                time_ms: Math.round((currentData?.total_execution_time_ms || 3000) * 0.10)
-              },
-              {
-                stage: 'ResNet50 + DenseNet121 Hybrid Prediction',
-                status: 'Completed',
-                details: `${predClass} (${confidencePercent}%)`,
-                time_ms: Math.round((currentData?.total_execution_time_ms || 3000) * 0.20)
-              },
-              {
-                stage: 'Grad-CAM Explainability',
-                status: predClass === 'Normal' ? 'Skipped (Normal Control)' : 'Completed',
-                details: predClass === 'Normal' ? 'N/A for Normal' : 'layer4 Bottleneck activation',
-                time_ms: Math.round((currentData?.total_execution_time_ms || 3000) * 0.30)
-              }
-            ] : []);
-
-        if (dynamicPipelineLogs.length === 0) return null;
-
-        return (
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
-              <div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-200 mb-1.5">
-                  <Zap className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Real-Time Performance Telemetry</span>
-                </div>
-                <h2 className="text-base font-extrabold text-slate-900 uppercase tracking-wider">
-                  Pipeline Execution Speed & Stage Timing
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Optimized with PyTorch inference mode, tensor caching, and vectorized morphology enhancement
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="px-4 py-2 bg-gradient-to-r from-sky-50 to-indigo-50 border border-indigo-200 rounded-2xl flex items-center gap-2.5">
-                  <Timer className="w-5 h-5 text-indigo-600 shrink-0" />
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Total Pipeline Latency</span>
-                    <span className="text-lg font-black text-indigo-950 font-mono">
-                      {currentData?.total_execution_time_seconds != null ? `${Number(currentData.total_execution_time_seconds).toFixed(2)}s` : `${((currentData?.total_execution_time_ms || 0) / 1000).toFixed(2)}s`}
-                      <span className="text-xs font-bold text-slate-500 ml-1.5 font-sans">
-                        ({currentData?.total_execution_time_ms || Math.round((currentData?.total_execution_time_seconds || 0) * 1000)} ms)
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {dynamicPipelineLogs.map((log, lIdx) => {
-              const isSkipped = log.status === 'Skipped';
-              const isFailed = log.status === 'Failed' || log.status === 'Rejected';
-              return (
-                <div
-                  key={lIdx}
-                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
-                    isFailed
-                      ? 'bg-rose-50/50 border-rose-200'
-                      : isSkipped
-                      ? 'bg-slate-50/60 border-slate-200 opacity-60'
-                      : 'bg-slate-50/80 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <span className="text-xs font-bold text-slate-900 leading-snug block">
-                        {log.stage}
-                      </span>
-                      {log.details && (
-                        <span className="text-[10px] text-slate-500 font-medium block mt-0.5 truncate max-w-[200px]" title={log.details}>
-                          {log.details}
-                        </span>
-                      )}
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
-                        isFailed
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : isSkipped
-                          ? 'bg-slate-200 text-slate-600'
-                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      }`}
-                    >
-                      {log.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 font-mono text-xs">
-                    <span className="text-[11px] font-sans text-slate-500">Latency:</span>
-                    <strong className={`font-black ${isFailed ? 'text-rose-700' : isSkipped ? 'text-slate-500' : 'text-indigo-950'}`}>
-                      {log.duration_ms ?? log.time_ms ?? 0} ms
-                    </strong>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    })()}
 
       {/* 3 Cards Grid: Image Validation, Original Image, and GAN+CBAM Reconstructed Image */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
