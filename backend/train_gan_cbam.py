@@ -14,6 +14,7 @@ SPLIT_JSON_PATH = os.path.join(CHECKPOINT_DIR, "dataset_split.json")
 
 sys.path.append(BASE_DIR)
 from models.gan.generator import GANCBAMGenerator
+from models.gan.discriminator import GANDiscriminator
 from services.metrics import calculate_reconstruction_metrics
 
 class LeukemiaReconDataset(Dataset):

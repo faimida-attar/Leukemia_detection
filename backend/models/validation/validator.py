@@ -69,64 +69,93 @@ class ImageValidator:
 
     def analyze_color_stain_features(self, cv2_img):
         """
-        Inspect Wright-Giemsa / Leishman stain color profiles:
-        - Purple/Violet nucleus hue range in HSV (Azure B / Methylene Blue)
-        - Pinkish/Red cytoplasm/RBC hue range (Eosin)
-        - Background brightness & saturation distribution
-        - Cellular morphology & discrete cell contour metrics
+        Inspect Wright-Giemsa / Leishman stain color profiles and cytology metrics:
+        - Purple/Violet nucleus chromatin hue & Azure B green-absorption profile
+        - Pinkish/Salmon cytoplasm and RBC hue range (Eosin)
+        - Brightfield slide background condenser illumination
+        - Discrete cellular morphology and contour circularity
         """
         if cv2_img is None or cv2_img.size == 0:
-            return 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0
 
         h, w = cv2_img.shape[:2]
         total_pixels = float(h * w)
         hsv = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2HSV)
-        v_channel = hsv[:, :, 2]
-
-        # 1. Purple/Violet nucleus stain mask (Azure B / Methylene Blue: Hue 120-168)
-        purple_mask = cv2.inRange(hsv, np.array([120, 30, 30]), np.array([168, 255, 255]))
-        purple_ratio = np.sum(purple_mask > 0) / total_pixels
-
-        # 2. Pinkish/Red RBC stain mask (Eosin)
-        pink_mask = cv2.inRange(hsv, np.array([165, 30, 50]), np.array([180, 255, 255])) + \
-                    cv2.inRange(hsv, np.array([0, 30, 50]), np.array([15, 255, 255]))
-        pink_ratio = np.sum(pink_mask > 0) / total_pixels
-
-        # 3. Bright background ratio (microscopy condenser illumination)
-        bright_bg_ratio = np.sum(v_channel > 150) / total_pixels
-
-        # 4. Laplacian variance (texture frequency)
+        rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
         gray = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
-        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-        # 5. Discrete Cellular Morphology Verification (isolated blood cells)
-        cell_mask = cv2.bitwise_or(purple_mask, pink_mask)
+        H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+        R, G, B = rgb[:, :, 0].astype(int), rgb[:, :, 1].astype(int), rgb[:, :, 2].astype(int)
+
+        # 1. Color differentiation (rejects monochrome/grayscale medical images: X-Ray, CT, MRI, Ultrasound)
+        color_diff = float(np.mean(np.abs(R - G) + np.abs(G - B) + np.abs(B - R)))
+        s_mean = float(np.mean(S))
+        v_mean = float(np.mean(V))
+
+        # 2. Strict Wright-Giemsa Azure B purple nucleus chromatin stain:
+        # Azure B binds to acidic nucleic acids, absorbing green light (550-650nm) -> B > G + 8 and R > G + 6.
+        # Must have R >= 25 (rules out pure blue sky/objects), S >= 25, V >= 25, and Hue in violet/purple [126, 168].
+        giemsa_purple = (B > G + 8) & (R > G + 6) & (S >= 25) & (V >= 25) & (R >= 25) & (H >= 126) & (H <= 168)
+        purple_ratio = float(np.sum(giemsa_purple) / total_pixels)
+
+        # 3. RBC Eosin Pink/Salmon stain mask
+        eosin_rbc = ((H <= 18) | (H >= 165)) & (S >= 20) & (V >= 60) & (R > G)
+        pink_ratio = float(np.sum(eosin_rbc) / total_pixels)
+
+        # 4. Bright background ratio (microscopy condenser illumination)
+        bright_bg_ratio = float(np.sum((V >= 135) & (S <= 95)) / total_pixels)
+
+        # 5. Natural scene foliage green (grass, trees, plants)
+        green_foliage = (H >= 35) & (H <= 82) & (S >= 35) & (G > R + 5)
+        green_ratio = float(np.sum(green_foliage) / total_pixels)
+
+        # 6. Laplacian variance (texture frequency)
+        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+        # 7. Discrete Leukocyte Chromatin Contour Analysis
+        p_mask = giemsa_purple.astype(np.uint8) * 255
+        p_contours, _ = cv2.findContours(p_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        p_areas = [cv2.contourArea(c) for c in p_contours if cv2.contourArea(c) >= 15]
+        max_p_area = max(p_areas) if p_areas else 0.0
+        max_purple_contour_ratio = float(max_p_area / total_pixels)
+        p_count = len(p_areas)
+
+        # 8. Combined Cellular Morphology Verification (isolated blood cells & confluent RBC monolayer)
+        cell_mask = (giemsa_purple | eosin_rbc).astype(np.uint8) * 255
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         cleaned_mask = cv2.morphologyEx(cell_mask, cv2.MORPH_OPEN, kernel)
         contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         cell_count = 0
         total_cell_area = 0.0
+        max_contour_area = 0.0
+
         for c in contours:
             area = cv2.contourArea(c)
-            if area >= 80:
+            if area > max_contour_area:
+                max_contour_area = area
+            if 50 <= area <= (total_pixels * 0.40):
                 peri = cv2.arcLength(c, True)
                 if peri > 0:
                     circularity = 4 * np.pi * area / (peri * peri)
-                    if circularity >= 0.15:
+                    if circularity >= 0.12:
                         cell_count += 1
                         total_cell_area += area
 
-        cell_coverage = total_cell_area / total_pixels
+        cell_count = max(cell_count, p_count)
+        cell_coverage = max(float(total_cell_area / total_pixels), float(np.sum(giemsa_purple) / total_pixels))
+        max_contour_ratio = float(max_contour_area / total_pixels)
         stain_score = (purple_ratio * 4.0) + (pink_ratio * 2.0) + (bright_bg_ratio * 0.5)
 
-        return stain_score, purple_ratio, pink_ratio, bright_bg_ratio, laplacian_var, cell_count, cell_coverage
+        return (stain_score, purple_ratio, pink_ratio, bright_bg_ratio, laplacian_var,
+                cell_count, cell_coverage, color_diff, s_mean, v_mean, green_ratio, max_contour_ratio,
+                max_purple_contour_ratio, p_count)
 
     def validate(self, pil_image, cv2_image=None):
         """
         Validate whether uploaded image is a genuine blood-smear microscopy image.
         Rejects camera photographs, natural landscapes, portraits/selfies, documents/text,
-        and invalid non-blood-smear microscopic images before prediction.
+        memes/quotes, and invalid non-blood-smear medical images (X-Rays, CTs, MRIs) before prediction.
         """
         try:
             if cv2_image is None:
@@ -140,27 +169,41 @@ class ImageValidator:
                 return {
                     "is_valid": False,
                     "confidence": 0.99,
-                    "status": "Invalid Image",
-                    "reason": "Image resolution is too small to be a diagnostic blood-smear microscopy slide."
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Image resolution is too small to be a diagnostic blood-smear microscopy slide.",
+                    "prediction": "Invalid Image - No Classification"
                 }
 
             aspect_ratio = max(w, h) / max(1, min(w, h))
-            if aspect_ratio > 4.5:
+            if aspect_ratio > 3.8:
                 return {
                     "is_valid": False,
                     "confidence": 0.98,
-                    "status": "Invalid Image",
-                    "reason": "Abnormal aspect ratio. Microscopic slide images maintain balanced proportions."
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Abnormal aspect ratio. Microscopic slide images maintain balanced field proportions.",
+                    "prediction": "Invalid Image - No Classification"
                 }
 
             # Check 2: Color stain & morphology analysis
-            stain_score, purple_ratio, pink_ratio, bright_bg, lap_var, cell_count, cell_cov = self.analyze_color_stain_features(cv2_image)
+            (stain_score, purple_ratio, pink_ratio, bright_bg, lap_var,
+             cell_count, cell_cov, color_diff, s_mean, v_mean, green_ratio, max_contour_ratio,
+             max_purple_contour_ratio, p_count) = self.analyze_color_stain_features(cv2_image)
 
-            # Check 3: Document / Text detection (sharp dark print on white background)
+            # Check 3: Monochrome / Non-stained Medical Images (X-Ray, CT, MRI, Ultrasound)
+            if color_diff < 12.0 or s_mean < 12.0:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.99,
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Monochrome or non-stained medical image (X-Ray, CT, MRI, Ultrasound) detected. Only Wright-Giemsa stained blood smear microscopy slides are accepted.",
+                    "prediction": "Invalid Image - No Classification"
+                }
+
+            # Check 4: Document / Text Photograph / Typography / Meme Detection
             gray = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2GRAY)
-            black_ratio = np.sum(gray < 50) / total_pixels
-            white_ratio = np.sum(gray > 220) / total_pixels
-            if black_ratio > 0.03 and white_ratio > 0.60:
+            black_ratio = float(np.sum(gray < 45) / total_pixels)
+            white_ratio = float(np.sum(gray > 220) / total_pixels)
+            if (black_ratio > 0.03 and white_ratio > 0.55) or (black_ratio > 0.08 and white_ratio > 0.40):
                 return {
                     "is_valid": False,
                     "confidence": 0.99,
@@ -169,9 +212,31 @@ class ImageValidator:
                     "prediction": "Invalid Image - No Classification"
                 }
 
-            # Check 4: Mandatory Wright-Giemsa Leukocyte Nucleus Verification
-            # Peripheral blood smear leukemia analysis requires leukocyte chromatin (purple/violet stain)
-            if purple_ratio < 0.008:
+            # Check 5: Natural Scene / Outdoor Scenery Coloration (Foliage Green)
+            if green_ratio > 0.035:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.98,
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Natural scene or landscape photograph detected (foliage/plant green coloration present).",
+                    "prediction": "Invalid Image - No Classification"
+                }
+
+            # Check 6: Brightfield Illumination & Darkness Check
+            dark_ratio = float(np.sum(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2HSV)[:, :, 2] < 50) / total_pixels)
+            if v_mean < 65.0 or dark_ratio > 0.60:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.97,
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Dark or poorly-illuminated non-microscopic scene detected. Blood smear microscopy requires brightfield illumination.",
+                    "prediction": "Invalid Image - No Classification"
+                }
+
+            # Check 7: Mandatory Wright-Giemsa Leukocyte Nucleus Verification
+            # Peripheral blood smear leukemia analysis strictly requires leukocyte chromatin (purple/violet stain)
+            # In normal healthy blood, leukocyte density is naturally sparse (~1 WBC per 700 RBCs).
+            if purple_ratio < 0.008 or p_count < 1:
                 return {
                     "is_valid": False,
                     "confidence": 0.98,
@@ -185,8 +250,12 @@ class ImageValidator:
                     }
                 }
 
-            # Check 5: Monolithic scene rejection (Skin, walls, solid colors, tissue biopsy sheets)
-            if cell_cov > 0.85:
+            # Check 8: Monolithic scene rejection (Skin, walls, solid colors, tissue biopsy sheets)
+            # Genuine blood smears possess both discrete leukocytes (p_count >= 2, purple_ratio >= 0.008)
+            # and erythrocytes (pink_ratio >= 0.05) distributed across the microscopic slide.
+            is_genuine_blood_smear = (purple_ratio >= 0.008) and (pink_ratio >= 0.05) and (p_count >= 2)
+
+            if not is_genuine_blood_smear and (max_contour_ratio > 0.60 or cell_cov > 0.85):
                 return {
                     "is_valid": False,
                     "confidence": 0.96,
@@ -200,8 +269,8 @@ class ImageValidator:
                     }
                 }
 
-            # Check 6: Discrete cellular morphology verification
-            if cell_count < 2 and cell_cov < 0.01:
+            # Check 9: Discrete cellular morphology verification
+            if cell_count < 2 and cell_cov < 0.008:
                 return {
                     "is_valid": False,
                     "confidence": 0.95,
@@ -215,7 +284,7 @@ class ImageValidator:
                     }
                 }
 
-            # Check 7: PyTorch Deep Learning Classifier validation
+            # Check 10: PyTorch Deep Learning Classifier validation
             valid_prob = 1.0
             invalid_prob = 0.0
             if self.model_loaded:
@@ -227,6 +296,7 @@ class ImageValidator:
                     invalid_prob = float(probs[0].item())
 
             # Combined Verification: Deep Learning probability + Biological Stain & Morphology criteria
+            # Must satisfy BOTH deep learning model confidence and strict biological cytology criteria
             is_valid = (valid_prob >= 0.50) if self.model_loaded else True
             confidence = valid_prob if is_valid else invalid_prob
 
@@ -263,6 +333,7 @@ class ImageValidator:
             return {
                 "is_valid": False,
                 "confidence": 0.0,
-                "status": "Invalid Image",
+                "status": "Invalid Image - No Classification",
+                "prediction": "Invalid Image - No Classification",
                 "reason": f"Error validating image structure: {str(e)}"
             }

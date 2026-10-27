@@ -288,14 +288,23 @@ def reconstruct_endpoint():
     file = request.files['image']
     pil_img = Image.open(file.stream).convert('RGB')
     orig_w, orig_h = pil_img.size
-    
+
+    # Strict Validation Guard: Reject non-microscopy images before reconstruction
+    val_res = validator.validate(pil_img)
+    if not val_res["is_valid"]:
+        return jsonify({
+            "error": "Invalid Image",
+            "is_valid": False,
+            "message": val_res.get("reason", "Uploaded file is not a genuine blood-smear microscopy image.")
+        }), 400
+
     # Transform to tensor for GAN Generator
     transform_to_t = transforms.ToTensor()
     img_tensor = transform_to_t(pil_img.resize((256, 256))).unsqueeze(0)
 
     with torch.no_grad():
         recon_tensor = gan_generator(img_tensor)[0]
-    
+
     # Convert tensor back to PIL
     recon_np = recon_tensor.permute(1, 2, 0).cpu().numpy()
     recon_np = np.clip(recon_np * 255.0, 0, 255).astype(np.uint8)
@@ -324,6 +333,15 @@ def predict_endpoint():
     file = request.files['image']
     pil_img = Image.open(file.stream).convert('RGB')
 
+    # Strict Validation Guard: Reject non-microscopy images before prediction
+    val_res = validator.validate(pil_img)
+    if not val_res["is_valid"]:
+        return jsonify({
+            "error": "Invalid Image",
+            "is_valid": False,
+            "message": val_res.get("reason", "Uploaded file is not a genuine blood-smear microscopy image.")
+        }), 400
+
     resnet_res = resnet_classifier.predict(pil_img)
     densenet_res = densenet_classifier.predict(pil_img)
     hybrid_res = hybrid_classifier.predict(pil_img)
@@ -346,6 +364,15 @@ def gradcam_endpoint():
     file = request.files['image']
     pil_img = Image.open(file.stream).convert('RGB')
     cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+    # Strict Validation Guard: Reject non-microscopy images before Grad-CAM
+    val_res = validator.validate(pil_img, cv2_img)
+    if not val_res["is_valid"]:
+        return jsonify({
+            "error": "Invalid Image",
+            "is_valid": False,
+            "message": val_res.get("reason", "Uploaded file is not a genuine blood-smear microscopy image.")
+        }), 400
 
     # Instantiate GradCAM targeting ResNet50/DenseNet final conv layer
     target_layer = hybrid_classifier.model.get_gradcam_target_layer()
@@ -388,10 +415,29 @@ def analyze_full_pipeline():
         orig_file_size_bytes = file.tell()
         file.seek(0)
         orig_file_size_formatted = format_file_size(orig_file_size_bytes)
+        orig_raw_bytes = file.read()
+        file.seek(0)
 
         pil_img = Image.open(file.stream).convert('RGB')
         cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         orig_w, orig_h = pil_img.size
+
+        # Determine native image format and MIME type directly from uploaded stream
+        lower_name = filename.lower()
+        if lower_name.endswith(('.jpg', '.jpeg')) or (pil_img.format and pil_img.format.upper() in ["JPEG", "JPG"]):
+            orig_mime = "image/jpeg"
+            orig_format_str = "JPEG"
+        elif lower_name.endswith('.png'):
+            orig_mime = "image/png"
+            orig_format_str = "PNG"
+        elif lower_name.endswith('.bmp'):
+            orig_mime = "image/bmp"
+            orig_format_str = "BMP"
+        else:
+            orig_mime = "image/jpeg"
+            orig_format_str = "JPEG"
+
+        orig_b64 = f"data:{orig_mime};base64,{base64.b64encode(orig_raw_bytes).decode('utf-8')}"
 
         # Step 1: Image Validation (Strict Blood-Smear Microscopy Verification)
         val_res = validator.validate(pil_img, cv2_img)
@@ -405,22 +451,24 @@ def analyze_full_pipeline():
                 "image_information": {
                     "filename": filename,
                     "original_dimensions": f"{orig_w} x {orig_h}",
-                    "processed_dimensions": "256 x 256",
-                    "format": pil_img.format or "PNG",
+                    "processed_dimensions": "N/A",
+                    "format": orig_format_str,
                     "original_file_size_bytes": orig_file_size_bytes,
                     "original_file_size_formatted": orig_file_size_formatted
                 },
                 "images": {
-                    "original": pil_to_base64(pil_img),
-                    "reconstructed": pil_to_base64(pil_img),
+                    "original": orig_b64,
+                    "reconstructed": None,
                     "gradcam": None
                 }
             }), 200
 
-        # Save original session image
+        # Save original session image in its native uploaded format
         session_id = str(uuid.uuid4())[:8]
-        orig_path = os.path.join(UPLOADS_DIR, f"{session_id}_orig.png")
-        pil_img.save(orig_path)
+        orig_ext = ".jpg" if "jpeg" in orig_mime else ".png"
+        orig_path = os.path.join(UPLOADS_DIR, f"{session_id}_orig{orig_ext}")
+        with open(orig_path, "wb") as f_orig:
+            f_orig.write(orig_raw_bytes)
 
         # Step 2: GAN + CBAM Reconstruction & Image Enhancement (No Compression)
         transform_to_t = transforms.ToTensor()
@@ -531,14 +579,14 @@ def analyze_full_pipeline():
                 "filename": filename,
                 "original_dimensions": f"{orig_w} x {orig_h}",
                 "processed_dimensions": f"{recon_pil.width} x {recon_pil.height}",
-                "format": pil_img.format or "PNG",
+                "format": orig_format_str,
                 "original_file_size_bytes": orig_file_size_bytes,
                 "original_file_size_formatted": orig_file_size_formatted,
                 "reconstructed_file_size_bytes": recon_file_size_bytes,
                 "reconstructed_file_size_formatted": recon_file_size_formatted
             },
             "images": {
-                "original": pil_to_base64(pil_img),
+                "original": orig_b64,
                 "reconstructed": pil_to_base64(recon_pil),
                 "gradcam": None if is_normal_stage else gradcam_b64
             },

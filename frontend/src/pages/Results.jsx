@@ -209,6 +209,7 @@ export default function Results({ setActiveTab, analysisData }) {
 
   const classCounts = { ALL: 0, AML: 0, CLL: 0, CML: 0, Normal: 0 };
   completedItems.forEach(item => {
+    if (item?.is_valid === false) return;
     const pred = item?.hybrid?.prediction || item?.classification?.prediction || item?.resnet50?.prediction;
     if (pred && classCounts[pred] !== undefined) {
       classCounts[pred]++;
@@ -264,8 +265,19 @@ export default function Results({ setActiveTab, analysisData }) {
         ? `${(rawReconBytes / 1024).toFixed(1)} KB`
         : '0 KB');
 
-  const origRes = currentData?.image_information?.original_dimensions ||
-    currentData?.image_information?.dimensions || '2048 × 1536 pixels';
+  const formatDimensions = (dimStr) => {
+    if (!dimStr) return null;
+    const cleanStr = String(dimStr).trim();
+    if (cleanStr.toLowerCase().includes('pixel')) return cleanStr;
+    return `${cleanStr} pixels`;
+  };
+
+  const origRes = formatDimensions(currentData?.image_information?.original_dimensions) ||
+    formatDimensions(currentData?.image_information?.dimensions) ||
+    (currentData?.naturalWidth && currentData?.naturalHeight ? `${currentData.naturalWidth} × ${currentData.naturalHeight} pixels` : null) ||
+    'Resolution Pending';
+
+  const reconRes = formatDimensions(currentData?.image_information?.processed_dimensions) || origRes;
 
   const isInvalid = currentData?.is_valid === false ||
     currentData?.status?.includes('Invalid') ||
@@ -273,7 +285,7 @@ export default function Results({ setActiveTab, analysisData }) {
 
   // Actual images returned by backend / mock for Active Image
   const origImgSrc = currentData?.images?.original || currentData?.previewUrl;
-  const reconImgSrc = currentData?.images?.reconstructed || currentData?.previewUrl;
+  const reconImgSrc = isInvalid ? null : (currentData?.images?.reconstructed || currentData?.previewUrl);
   const gradcamImgSrc = isInvalid ? null : currentData?.images?.gradcam;
 
   // Model benchmark metrics from evaluation pipeline
@@ -341,13 +353,15 @@ export default function Results({ setActiveTab, analysisData }) {
   });
 
   const visualPipeline = [
-    { title: 'UPLOAD IMAGE', desc: 'Raw Microscopic Slide', bg: 'bg-slate-100 text-slate-800' },
-    { title: 'VALIDATION', desc: 'Blood-Smear Verification', bg: 'bg-emerald-50 text-emerald-900' },
-    { title: 'GAN + CBAM', desc: 'Reconstruction & Enhancement', bg: 'bg-sky-100 text-sky-900' },
-    { title: 'CLASSIFICATION', desc: 'ResNet50 + DenseNet121', bg: 'bg-sky-600 text-white' },
-    { title: 'GRAD-CAM', desc: 'Feature Map Explanation', bg: 'bg-purple-100 text-purple-900' },
-    { title: 'METRICS TABLE', desc: 'Diagnostic & Model Metrics', bg: 'bg-emerald-600 text-white' },
-    { title: 'REPORTS', desc: 'MongoDB, Excel & PDF', bg: 'bg-slate-100 text-slate-800' }
+    { num: '01', title: 'ORIGINAL', desc: 'Raw Blood Smear', bg: 'bg-slate-50 border-slate-200 text-slate-800' },
+    { num: '02', title: 'VALIDATION', desc: 'Cytology Validation', bg: 'bg-emerald-50 border-emerald-200 text-emerald-900' },
+    { num: '03', title: 'PREPROCESSING', desc: 'RGB Normalization', bg: 'bg-slate-50 border-slate-200 text-slate-800' },
+    { num: '04', title: 'GAN + CBAM', desc: 'Attention Enhancement', bg: 'bg-sky-50 border-sky-200 text-sky-900' },
+    { num: '05', title: 'RECONSTRUCTED', desc: 'Enhanced Details', bg: 'bg-sky-600 border-sky-600 text-white shadow-xs', isWhite: true },
+    { num: '06', title: 'PSNR/SSIM/MAE', desc: 'Quality Metrics', bg: 'bg-indigo-50 border-indigo-200 text-indigo-900' },
+    { num: '07', title: 'RESNET50 + DENSENET121', desc: 'Deep Feature Extractor', bg: 'bg-sky-50 border-sky-200 text-sky-900' },
+    { num: '08', title: 'LEUKEMIA TYPE', desc: 'ALL / AML / CLL / CML', bg: 'bg-emerald-600 border-emerald-600 text-white shadow-xs', isWhite: true },
+    { num: '09', title: 'GRAD-CAM', desc: 'Heatmap Explanation', bg: 'bg-purple-50 border-purple-200 text-purple-900' }
   ];
 
   if (resultsList.length === 0) {
@@ -540,7 +554,7 @@ export default function Results({ setActiveTab, analysisData }) {
               >
                 {resultsList.map((item, idx) => (
                   <option key={idx} value={idx}>
-                    {idx + 1}. {item.selectedFileName || item.image_information?.filename || `Image ${idx + 1}`} {item.status === 'processing' ? '(Analyzing...)' : `(${item.hybrid?.prediction || 'Valid'})`}
+                    {idx + 1}. {item.selectedFileName || item.image_information?.filename || `Image ${idx + 1}`} {item.status === 'processing' ? '(Analyzing...)' : `(${item.hybrid?.prediction || (item.is_valid === false ? 'Invalid' : 'Valid')})`}
                   </option>
                 ))}
               </select>
@@ -569,27 +583,32 @@ export default function Results({ setActiveTab, analysisData }) {
             {filteredItems.map(item => {
               const isSelected = activeIndex === item.origIdx;
               const isProc = item.status === 'processing';
-              const pred = isProc ? 'Analyzing...' : (item.hybrid?.prediction || 'ALL');
               const isVal = item.is_valid !== false;
+              const pred = isProc ? 'Analyzing...' : (!isVal ? 'Invalid' : (item.hybrid?.prediction || 'ALL'));
 
               return (
                 <button
                   key={item.origIdx}
                   onClick={() => setActiveIndex(item.origIdx)}
                   className={`shrink-0 w-32 p-2 rounded-2xl border text-left transition-all ${isSelected
-                    ? 'border-sky-500 bg-sky-50/80 ring-2 ring-sky-400 shadow-sm'
-                    : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-slate-50'
+                    ? (!isVal ? 'border-rose-500 bg-rose-50/80 ring-2 ring-rose-400 shadow-sm' : 'border-sky-500 bg-sky-50/80 ring-2 ring-sky-400 shadow-sm')
+                    : (!isVal ? 'border-rose-200 bg-rose-50/20 hover:border-rose-300' : 'border-slate-200 bg-white hover:border-sky-300 hover:bg-slate-50')
                     }`}
                 >
                   <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-slate-100 border border-slate-200 mb-1.5">
                     <img
-                      src={item.images?.reconstructed || item.images?.original || item.previewUrl}
+                      src={(!isVal ? (item.images?.original || item.previewUrl) : (item.images?.reconstructed || item.images?.original || item.previewUrl))}
                       alt={item.selectedFileName}
                       className="w-full h-full object-cover"
                     />
                     <span className="absolute top-1 left-1 bg-slate-900/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                       #{item.origIdx + 1}
                     </span>
+                    {!isVal && (
+                      <span className="absolute top-1 right-1 bg-rose-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm">
+                        REJECTED
+                      </span>
+                    )}
                     {isProc && (
                       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center">
                         <Loader2 className="w-5 h-5 text-sky-400 animate-spin" />
@@ -600,9 +619,9 @@ export default function Results({ setActiveTab, analysisData }) {
                     {item.selectedFileName || `Image ${item.origIdx + 1}`}
                   </p>
                   <div className="flex items-center justify-between text-[10px] font-semibold mt-0.5">
-                    <span className="text-sky-700 font-mono font-bold truncate">{pred}</span>
+                    <span className={`font-mono font-bold truncate ${!isVal ? 'text-rose-600' : 'text-sky-700'}`}>{pred}</span>
                     {!isProc && (
-                      <span className={isVal ? 'text-emerald-600' : 'text-rose-600'}>
+                      <span className={isVal ? 'text-emerald-600' : 'text-rose-600 font-bold'}>
                         {isVal ? 'Valid' : 'Invalid'}
                       </span>
                     )}
@@ -618,23 +637,44 @@ export default function Results({ setActiveTab, analysisData }) {
       <div id="active-result-section"></div>
 
       {/* Visual Pipeline Sequence */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-5">
         <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider text-center sm:text-left">
           Complete Research Pipeline Sequence
         </h2>
-        <div className="flex flex-wrap items-center justify-center sm:justify-between gap-2 pt-2">
-          {visualPipeline.map((step, idx) => (
+
+        {/* Row 1: Steps 01 to 07 with Connecting Arrows */}
+        <div className="flex items-center justify-between gap-1 sm:gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {visualPipeline.slice(0, 7).map((step, idx) => (
             <React.Fragment key={idx}>
-              <div className={`p-3 rounded-xl border border-slate-200/80 text-center min-w-[110px] ${step.bg}`}>
-                <span className="text-[10px] font-mono font-bold block opacity-70">0{idx + 1}</span>
-                <span className="text-xs font-extrabold block">{step.title}</span>
-                <span className="text-[10px] opacity-80">{step.desc}</span>
+              <div className={`p-3 rounded-2xl border text-center flex-1 min-w-[110px] max-w-[135px] ${step.bg}`}>
+                <span className={`text-[10px] font-mono font-bold block ${step.isWhite ? 'text-white/80' : 'opacity-70'}`}>
+                  {step.num}
+                </span>
+                <span className="text-xs font-black block tracking-tight">{step.title}</span>
+                <span className={`text-[10px] block mt-0.5 ${step.isWhite ? 'text-white/90' : 'opacity-80'}`}>
+                  {step.desc}
+                </span>
               </div>
-              {idx < visualPipeline.length - 1 && (
-                <ArrowRight className="w-4 h-4 text-slate-400 shrink-0 hidden lg:block" />
-              )}
+              <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
             </React.Fragment>
           ))}
+        </div>
+
+        {/* Row 2: Steps 08 and 09 with Centered Flow Arrow */}
+        <div className="flex items-center justify-between gap-1 sm:gap-2 pt-1">
+          <div className={`p-3 rounded-2xl border text-center flex-1 min-w-[110px] max-w-[135px] ${visualPipeline[7].bg}`}>
+            <span className="text-[10px] font-mono font-bold block text-white/80">{visualPipeline[7].num}</span>
+            <span className="text-xs font-black block tracking-tight">{visualPipeline[7].title}</span>
+            <span className="text-[10px] block mt-0.5 text-white/90">{visualPipeline[7].desc}</span>
+          </div>
+
+          <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+
+          <div className={`p-3 rounded-2xl border text-center flex-1 min-w-[110px] max-w-[135px] ${visualPipeline[8].bg}`}>
+            <span className="text-[10px] font-mono font-bold block opacity-70">{visualPipeline[8].num}</span>
+            <span className="text-xs font-black block tracking-tight">{visualPipeline[8].title}</span>
+            <span className="text-[10px] block mt-0.5 opacity-80">{visualPipeline[8].desc}</span>
+          </div>
         </div>
       </div>
 
@@ -699,25 +739,32 @@ export default function Results({ setActiveTab, analysisData }) {
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">3. RECONSTRUCTED IMAGE</h2>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200">
-                GAN + CBAM Enhanced
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isInvalid ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-sky-100 text-sky-800 border border-sky-200'}`}>
+                {isInvalid ? 'Reconstruction Blocked' : 'GAN + CBAM Enhanced'}
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <div><span className="text-slate-400 font-sans">Resolution:</span> <strong className="text-slate-900">{origRes}</strong></div>
-              <div><span className="text-slate-400 font-sans">Enhanced Size:</span> <strong className="text-slate-900">{reconSizeFormatted}</strong></div>
-              <div className="col-span-2"><span className="text-slate-400 font-sans">Enhancement:</span> <strong className="text-sky-700 font-sans">GAN Generator + CBAM Attention</strong></div>
+              <div><span className="text-slate-400 font-sans">Resolution:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconRes}</strong></div>
+              <div><span className="text-slate-400 font-sans">Enhanced Size:</span> <strong className="text-slate-900">{isInvalid ? 'N/A' : reconSizeFormatted}</strong></div>
+              <div className="col-span-2"><span className="text-slate-400 font-sans">Enhancement:</span> <strong className={isInvalid ? "text-rose-600 font-sans" : "text-sky-700 font-sans"}>{isInvalid ? 'Blocked (Invalid Non-Microscopy Image)' : 'GAN Generator + CBAM Attention'}</strong></div>
             </div>
           </div>
 
-          <button
-            onClick={() => openImageInNewWindow(reconImgSrc, 'GAN + CBAM Enhanced Reconstructed Slide', origRes, reconSizeFormatted, `reconstructed_${currentData?.image_information?.filename || 'enhanced.png'}`)}
-            className="w-full mt-2 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-white" />
-            <span>Show Reconstructed Image (Child Window)</span>
-          </button>
+          {isInvalid ? (
+            <div className="w-full mt-2 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center justify-center gap-2">
+              <XCircle className="w-3.5 h-3.5 text-rose-600" />
+              <span>Reconstruction Disabled</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => openImageInNewWindow(reconImgSrc, 'GAN + CBAM Enhanced Reconstructed Slide', reconRes, reconSizeFormatted, `reconstructed_${currentData?.image_information?.filename || 'enhanced.png'}`)}
+              className="w-full mt-2 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-white" />
+              <span>Show Reconstructed Image (Child Window)</span>
+            </button>
+          )}
         </div>
 
       </div>
@@ -764,9 +811,11 @@ export default function Results({ setActiveTab, analysisData }) {
 
             {/* Original Box */}
             <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 text-center space-y-3">
-              <div className="flex justify-between items-center text-xs font-bold text-slate-800 border-b border-slate-200 pb-2">
+              <div className="flex flex-wrap justify-between items-center text-xs font-bold text-slate-800 border-b border-slate-200 pb-2 gap-2">
                 <span>1. Original Uploaded Slide</span>
-                <span className="font-mono text-slate-500">{origRes}</span>
+                <span className="font-mono text-slate-500">
+                  {origRes} • {origSizeFormatted}
+                </span>
               </div>
               <div className="min-h-[220px] flex items-center justify-center bg-white p-2 rounded-xl border border-slate-200 shadow-inner">
                 {origImgSrc ? (
@@ -779,19 +828,27 @@ export default function Results({ setActiveTab, analysisData }) {
             </div>
 
             {/* Reconstructed Box */}
-            <div className="border border-sky-300 rounded-2xl p-4 bg-sky-50/50 text-center space-y-3">
-              <div className="flex justify-between items-center text-xs font-bold text-sky-900 border-b border-sky-200 pb-2">
-                <span>2. GAN + CBAM Reconstructed Output</span>
-                <span className="font-mono text-sky-700">{origRes}</span>
+            <div className={`border rounded-2xl p-4 text-center space-y-3 ${isInvalid ? 'border-rose-200 bg-rose-50/30' : 'border-sky-300 bg-sky-50/50'}`}>
+              <div className="flex flex-wrap justify-between items-center text-xs font-bold border-b pb-2 gap-2">
+                <span className={isInvalid ? 'text-rose-900' : 'text-sky-900'}>2. GAN + CBAM Reconstructed Output</span>
+                <span className={`font-mono ${isInvalid ? 'text-slate-400' : 'text-sky-700'}`}>
+                  {isInvalid ? 'N/A' : `${reconRes} • ${reconSizeFormatted}`}
+                </span>
               </div>
-              <div className="min-h-[220px] flex items-center justify-center bg-white p-2 rounded-xl border border-sky-200 shadow-inner">
-                {reconImgSrc ? (
+              <div className="min-h-[220px] flex items-center justify-center bg-white p-2 rounded-xl border border-slate-200 shadow-inner">
+                {reconImgSrc && !isInvalid ? (
                   <img src={reconImgSrc} alt="Reconstructed Output" className="max-h-60 object-contain rounded" />
                 ) : (
-                  <span className="text-xs text-sky-600">No image loaded</span>
+                  <div className="text-center p-4 space-y-1">
+                    <XCircle className="w-8 h-8 text-rose-500 mx-auto" />
+                    <p className="text-xs font-bold text-rose-700">Reconstruction Prevented</p>
+                    <p className="text-[11px] text-slate-500 max-w-xs mx-auto">Non-microscopy image was rejected during cytology validation.</p>
+                  </div>
                 )}
               </div>
-              <div className="text-xs text-sky-800 font-medium">High-frequency nuclear chromatin details restored by CBAM attention.</div>
+              <div className={`text-xs font-medium ${isInvalid ? 'text-rose-700' : 'text-sky-800'}`}>
+                {isInvalid ? 'Reconstruction blocked: Image is not a genuine blood smear slide.' : 'High-frequency nuclear chromatin details restored by CBAM attention.'}
+              </div>
             </div>
 
           </div>

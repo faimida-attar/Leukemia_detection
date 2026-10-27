@@ -137,7 +137,7 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
           Uploaded Image Model Performance & Evaluation
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-          Robust evaluation calculated strictly from the <strong className="text-slate-900 font-bold">full unseen 750-image test set</strong> for <strong className="text-slate-900 font-semibold">ResNet50</strong>, <strong className="text-slate-900 font-semibold">DenseNet121</strong>, and the <strong className="text-slate-900 font-semibold">Hybrid ResNet50 + DenseNet121 Classifier</strong>.
+          Robust evaluation calculated strictly from the <strong className="text-slate-900 font-bold">full unseen 750-image test set</strong> for the proposed <strong className="text-slate-900 font-semibold">Hybrid ResNet50 + DenseNet121 Classifier</strong>.
         </p>
         
         <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-slate-100 border border-slate-200 rounded-full text-xs font-mono font-bold text-slate-800">
@@ -199,24 +199,22 @@ export default function ModelPerformance({ analysisData, setActiveTab }) {
         </div>
       </section>
 
-      {/* SECTION 2: Dynamic Confusion Matrices */}
+      {/* SECTION 2: Dynamic Confusion Matrix (Hybrid Model Only) */}
       <section className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
         <div className="border-b border-slate-100 pb-4">
           <span className="text-xs font-bold text-sky-700 uppercase tracking-wider bg-sky-50 px-3 py-1 rounded-full border border-sky-200">
-            Confusion Matrices
+            Confusion Matrix
           </span>
           <h2 className="text-xl font-extrabold text-slate-900 mt-2">
-            Model Prediction Confusion Matrices
+            Hybrid Model Prediction Confusion Matrix
           </h2>
           <p className="text-xs text-slate-500">
             True class vs predicted class distributions evaluated across full 750-image test set
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {renderConfusionMatrix("resnet50", "ResNet50 Model Matrix")}
-          {renderConfusionMatrix("densenet121", "DenseNet121 Model Matrix")}
-          {renderConfusionMatrix("hybrid_resnet50_densenet121", "Hybrid ResNet50 + DenseNet121 Matrix")}
+        <div className="max-w-2xl mx-auto">
+          {renderConfusionMatrix("hybrid_resnet50_densenet121", "Hybrid ResNet50 + DenseNet121 Model Matrix")}
         </div>
       </section>
 

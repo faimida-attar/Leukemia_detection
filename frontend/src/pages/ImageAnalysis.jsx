@@ -108,23 +108,46 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
   const runBatchAnalysis = async () => {
     if (selectedFilesList.length === 0 || isAnalyzing) return;
 
+    setIsAnalyzing(true);
+    setErrorMessage(null);
+
+    // Strict Pre-Analysis Validation: Confirm validity for all files before any pipeline execution
+    let currentFiles = selectedFilesList;
+    try {
+      currentFiles = await Promise.all(
+        selectedFilesList.map(async (item) => {
+          if (item.isValid === false) return item;
+          try {
+            const formData = new FormData();
+            formData.append('image', item.file);
+            const valRes = await validateImageApi(formData);
+            const isValid = valRes?.is_valid === true && !valRes?.status?.toLowerCase().includes('invalid');
+            return { ...item, isValid, validationReason: valRes?.reason };
+          } catch (e) {
+            return item;
+          }
+        })
+      );
+      setSelectedFilesList(currentFiles);
+    } catch (e) {
+      // Proceed with current states
+    }
+
     // Filter out invalid images from analysis (Strict Validation Guard)
-    const validSelection = selectedFilesList.filter(item => item.isValid !== false);
-    const rejectedCount = selectedFilesList.length - validSelection.length;
+    const validSelection = currentFiles.filter(item => item.isValid === true);
+    const rejectedCount = currentFiles.length - validSelection.length;
 
     if (rejectedCount > 0) {
-      setInvalidNotice(`${rejectedCount} invalid image(s) detected and excluded from analysis.`);
+      setInvalidNotice(`${rejectedCount} invalid non-microscopy image(s) detected and rejected.`);
     } else {
       setInvalidNotice(null);
     }
 
     if (validSelection.length === 0) {
-      setErrorMessage('No valid blood-smear microscopy slide detected in selected batch. Excluded invalid items.');
+      setIsAnalyzing(false);
+      setErrorMessage('Validation rejected: Uploaded image is not a genuine blood-smear microscopy slide. Leukemia prediction and reconstruction prevented.');
       return;
     }
-
-    setIsAnalyzing(true);
-    setErrorMessage(null);
 
     // 1. Instantly prepare initial placeholders for ONLY VALID selected files
     const initialResults = validSelection.map((item, idx) => ({
@@ -157,19 +180,23 @@ export default function ImageAnalysis({ setActiveTab, setAnalysisData }) {
       let resultData;
       resultData = await analyzeCompletePipelineApi(formData);
 
+      const isItemValid = resultData?.is_valid === true && !resultData?.status?.toLowerCase().includes('invalid') && !resultData?.prediction?.toLowerCase().includes('invalid');
+
       const itemResult = {
         ...(resultData || {}),
         previewUrl: item.previewUrl,
         selectedFileName: item.name,
+        file_size_bytes: file.size,
+        file_size_formatted: item.size,
         status: 'completed',
-        is_valid: resultData?.is_valid !== false && resultData?.success !== false
+        is_valid: isItemValid
       };
 
       completedResults[index] = itemResult;
       setProcessedImages((prev) => [...prev, itemResult]);
 
-      // Only pass valid processed items to Results page
-      const validOnlyResults = completedResults.filter(res => res?.is_valid !== false);
+      // Only pass strictly valid processed items to Results page
+      const validOnlyResults = completedResults.filter(res => res?.is_valid === true);
 
       if (setAnalysisData) {
         setAnalysisData([...validOnlyResults]);

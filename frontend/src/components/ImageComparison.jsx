@@ -4,7 +4,15 @@ import { Eye, Layers, ZoomIn, Info, CheckCircle2, Sliders, ArrowRight } from 'lu
 export default function ImageComparison({ originalUrl, reconstructedUrl, info, metrics }) {
   const [activeView, setActiveView] = useState('all');
 
-  const origRes = info?.original_dimensions || info?.dimensions || '2048 × 1536 pixels';
+  const formatDimensions = (dimStr) => {
+    if (!dimStr) return null;
+    const cleanStr = String(dimStr).trim();
+    if (cleanStr.toLowerCase().includes('pixel')) return cleanStr;
+    return `${cleanStr} pixels`;
+  };
+
+  const origRes = formatDimensions(info?.original_dimensions) || formatDimensions(info?.dimensions) || 'Resolution Pending';
+  const reconRes = formatDimensions(info?.processed_dimensions) || origRes;
   const origSize = info?.original_file_size_formatted || info?.file_size_formatted || 'N/A';
   const reconSize = info?.reconstructed_file_size_formatted || origSize;
   const psnr = metrics?.psnr_db ?? metrics?.psnr ?? 'N/A';
@@ -93,7 +101,7 @@ export default function ImageComparison({ originalUrl, reconstructedUrl, info, m
             )}
           </div>
           <div className="bg-white p-3 border-t border-sky-200 text-xs space-y-1">
-            <div className="flex justify-between text-slate-600"><span className="text-slate-400">Resolution:</span> <span className="font-bold">{origRes}</span></div>
+            <div className="flex justify-between text-slate-600"><span className="text-slate-400">Resolution:</span> <span className="font-bold">{reconRes}</span></div>
             <div className="flex justify-between text-slate-600"><span className="text-slate-400">Enhanced Size:</span> <span className="font-bold text-sky-700">{reconSize}</span></div>
           </div>
         </div>
