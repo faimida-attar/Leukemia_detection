@@ -429,34 +429,6 @@ export default function Results({ setActiveTab, analysisData }) {
 
       </div>
 
-      {/* Live Pipeline Execution Progress Banner (shown when analyzing/processing) */}
-      {isProcessing && (
-        <div className="bg-white border-2 border-sky-400 rounded-3xl p-6 sm:p-8 shadow-md space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-200 shrink-0">
-                <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
-              </div>
-              <div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-50 text-sky-700 text-xs font-bold border border-sky-200 mb-1">
-                  <Activity className="w-3.5 h-3.5 text-sky-600 animate-pulse" />
-                  <span>Pipeline Execution Active</span>
-                </div>
-                <h2 className="text-xl font-extrabold text-slate-900">
-                  Processing: <span className="font-mono text-sky-700">{currentData?.selectedFileName || currentData?.image_information?.filename || 'Microscopy Slide'}</span>
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Executing verified 5-stage reconstruction and deep learning prediction pipeline...
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-sky-50 rounded-2xl border border-sky-200 text-xs font-mono font-bold text-sky-900 shrink-0">
-              <Loader2 className="w-4 h-4 animate-spin text-sky-600" />
-              <span>Analyzing & Predicting...</span>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Complete Research Pipeline Sequence - Placed prominently at top */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
