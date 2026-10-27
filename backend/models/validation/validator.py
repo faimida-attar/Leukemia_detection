@@ -212,6 +212,30 @@ class ImageValidator:
                     "prediction": "Invalid Image - No Classification"
                 }
 
+            # Check 4b: Digital Display Screen, Laptop/Monitor, and QR Code Grid Detection
+            # Natural blood cytology possesses curved, organic cellular membranes.
+            # Man-made displays, laptops, phone screens, barcodes, and QR codes exhibit sharp orthogonal (horizontal/vertical) edges.
+            resized_512 = cv2.resize(cv2_image, (512, 512))
+            r_gray = cv2.cvtColor(resized_512, cv2.COLOR_BGR2GRAY)
+            r_edges = cv2.Canny(r_gray, 60, 180)
+            hough_lines = cv2.HoughLinesP(r_edges, 1, np.pi / 180, threshold=70, minLineLength=50, maxLineGap=5)
+            ortho_count = 0
+            if hough_lines is not None:
+                for l in hough_lines:
+                    pts = l.flatten()
+                    if len(pts) == 4:
+                        x1, y1, x2, y2 = pts
+                        if abs(y2 - y1) <= 2 or abs(x2 - x1) <= 2:
+                            ortho_count += 1
+            if ortho_count >= 8:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.99,
+                    "status": "Invalid Image - No Classification",
+                    "reason": f"Digital display screen or structured man-made scene detected ({ortho_count} orthogonal grid edges). Blood-smear cytology exhibits organic curved cell morphology.",
+                    "prediction": "Invalid Image - No Classification"
+                }
+
             # Check 5: Natural Scene / Outdoor Scenery Coloration (Foliage Green)
             if green_ratio > 0.035:
                 return {
@@ -231,6 +255,35 @@ class ImageValidator:
                     "status": "Invalid Image - No Classification",
                     "reason": "Dark or poorly-illuminated non-microscopic scene detected. Blood smear microscopy requires brightfield illumination.",
                     "prediction": "Invalid Image - No Classification"
+                }
+
+            # Check 6b: Central Field Illumination (Brightfield microscope condenser focus vs dark digital screens)
+            c_box = gray[int(h * 0.20):int(h * 0.80), int(w * 0.20):int(w * 0.80)]
+            center_dark_ratio = float(np.sum(c_box < 50) / c_box.size)
+            if center_dark_ratio > 0.08 and bright_bg < 0.40:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.98,
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Dark non-illuminated central field detected. Blood-smear microscopy requires brightfield condenser illumination across the slide view.",
+                    "prediction": "Invalid Image - No Classification"
+                }
+
+            # Check 6c: Cytological Monolayer Coherence (WBC / RBC / Brightfield Glass balance)
+            # A peripheral blood smear must display either significant leukocyte stain (purple >= 2%),
+            # erythrocyte monolayer density (pink >= 5%), or brightfield glass transmission (bright_bg >= 40%).
+            if purple_ratio < 0.020 and pink_ratio < 0.050 and bright_bg < 0.40:
+                return {
+                    "is_valid": False,
+                    "confidence": 0.98,
+                    "status": "Invalid Image - No Classification",
+                    "reason": "Invalid non-microscopy image: Lacks peripheral blood cytology (insufficient erythrocyte monolayer and brightfield illumination).",
+                    "prediction": "Invalid Image - No Classification",
+                    "stain_metrics": {
+                        "purple_nucleus_ratio": round(float(purple_ratio), 4),
+                        "pink_cytoplasm_ratio": round(float(pink_ratio), 4),
+                        "background_luminance": round(float(bright_bg), 4)
+                    }
                 }
 
             # Check 7: Mandatory Wright-Giemsa Leukocyte Nucleus Verification
