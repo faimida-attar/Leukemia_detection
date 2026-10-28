@@ -78,14 +78,29 @@ class ImageValidator:
         if cv2_img is None or cv2_img.size == 0:
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0
 
-        h, w = cv2_img.shape[:2]
+        orig_h, orig_w = cv2_img.shape[:2]
+
+        # Memory & Speed Optimization:
+        # Scale to max dimension 1024 for color stain & morphological analysis.
+        # Color stain proportions, background luminance, and contour distributions
+        # are scale-invariant, while reducing peak RAM from 1+ GB down to ~2 MB.
+        if max(orig_h, orig_w) > 1024:
+            scale = 1024.0 / max(orig_h, orig_w)
+            target_w = max(64, int(orig_w * scale))
+            target_h = max(64, int(orig_h * scale))
+            cv2_eval = cv2.resize(cv2_img, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        else:
+            cv2_eval = cv2_img
+
+        h, w = cv2_eval.shape[:2]
         total_pixels = float(h * w)
-        hsv = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2HSV)
-        rgb = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB)
-        gray = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
+        hsv = cv2.cvtColor(cv2_eval, cv2.COLOR_BGR2HSV)
+        rgb = cv2.cvtColor(cv2_eval, cv2.COLOR_BGR2RGB)
+        gray = cv2.cvtColor(cv2_eval, cv2.COLOR_BGR2GRAY)
 
         H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-        R, G, B = rgb[:, :, 0].astype(int), rgb[:, :, 1].astype(int), rgb[:, :, 2].astype(int)
+        # Use int16 to avoid 64-bit int allocations while preventing overflow
+        R, G, B = rgb[:, :, 0].astype(np.int16), rgb[:, :, 1].astype(np.int16), rgb[:, :, 2].astype(np.int16)
 
         # 1. Color differentiation (rejects monochrome/grayscale medical images: X-Ray, CT, MRI, Ultrasound)
         color_diff = float(np.mean(np.abs(R - G) + np.abs(G - B) + np.abs(B - R)))
@@ -110,12 +125,13 @@ class ImageValidator:
         green_ratio = float(np.sum(green_foliage) / total_pixels)
 
         # 6. Laplacian variance (texture frequency)
-        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_32F).var())
 
         # 7. Discrete Leukocyte Chromatin Contour Analysis
         p_mask = giemsa_purple.astype(np.uint8) * 255
         p_contours, _ = cv2.findContours(p_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        p_areas = [cv2.contourArea(c) for c in p_contours if cv2.contourArea(c) >= 15]
+        min_p_area = max(5, int(15 * (total_pixels / (4160 * 3120))))
+        p_areas = [cv2.contourArea(c) for c in p_contours if cv2.contourArea(c) >= min_p_area]
         max_p_area = max(p_areas) if p_areas else 0.0
         max_purple_contour_ratio = float(max_p_area / total_pixels)
         p_count = len(p_areas)
@@ -129,12 +145,13 @@ class ImageValidator:
         cell_count = 0
         total_cell_area = 0.0
         max_contour_area = 0.0
+        min_cell_area = max(10, int(50 * (total_pixels / (4160 * 3120))))
 
         for c in contours:
             area = cv2.contourArea(c)
             if area > max_contour_area:
                 max_contour_area = area
-            if 50 <= area <= (total_pixels * 0.40):
+            if min_cell_area <= area <= (total_pixels * 0.40):
                 peri = cv2.arcLength(c, True)
                 if peri > 0:
                     circularity = 4 * np.pi * area / (peri * peri)
@@ -158,13 +175,10 @@ class ImageValidator:
         memes/quotes, and invalid non-blood-smear medical images (X-Rays, CTs, MRIs) before prediction.
         """
         try:
-            if cv2_image is None:
-                cv2_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-
             w, h = pil_image.size
             total_pixels = float(w * h)
 
-            # Check 1: Resolution & Aspect Ratio
+            # Check 1: Resolution & Aspect Ratio (evaluated on actual native dimensions)
             if w < 64 or h < 64:
                 return {
                     "is_valid": False,
@@ -184,10 +198,23 @@ class ImageValidator:
                     "prediction": "Invalid Image - No Classification"
                 }
 
+            # Create or downsample cv2_eval to avoid massive 99MB int64 memory allocations
+            if cv2_image is None:
+                cv2_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+            if max(h, w) > 1024:
+                scale = 1024.0 / max(h, w)
+                cv2_eval = cv2.resize(cv2_image, (max(64, int(w * scale)), max(64, int(h * scale))), interpolation=cv2.INTER_AREA)
+            else:
+                cv2_eval = cv2_image
+
+            eh, ew = cv2_eval.shape[:2]
+            eval_pixels = float(eh * ew)
+
             # Check 2: Color stain & morphology analysis
             (stain_score, purple_ratio, pink_ratio, bright_bg, lap_var,
              cell_count, cell_cov, color_diff, s_mean, v_mean, green_ratio, max_contour_ratio,
-             max_purple_contour_ratio, p_count) = self.analyze_color_stain_features(cv2_image)
+             max_purple_contour_ratio, p_count) = self.analyze_color_stain_features(cv2_eval)
 
             # Check 3: Monochrome / Non-stained Medical Images (X-Ray, CT, MRI, Ultrasound)
             if color_diff < 12.0 or s_mean < 12.0:
@@ -200,9 +227,9 @@ class ImageValidator:
                 }
 
             # Check 4: Document / Text Photograph / Typography / Meme Detection
-            gray = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2GRAY)
-            black_ratio = float(np.sum(gray < 45) / total_pixels)
-            white_ratio = float(np.sum(gray > 220) / total_pixels)
+            gray_eval = cv2.cvtColor(cv2_eval, cv2.COLOR_BGR2GRAY)
+            black_ratio = float(np.sum(gray_eval < 45) / eval_pixels)
+            white_ratio = float(np.sum(gray_eval > 220) / eval_pixels)
             if (black_ratio > 0.03 and white_ratio > 0.55) or (black_ratio > 0.08 and white_ratio > 0.40):
                 return {
                     "is_valid": False,
@@ -213,9 +240,7 @@ class ImageValidator:
                 }
 
             # Check 4b: Digital Display Screen, Laptop/Monitor, and QR Code Grid Detection
-            # Natural blood cytology possesses curved, organic cellular membranes.
-            # Man-made displays, laptops, phone screens, barcodes, and QR codes exhibit sharp orthogonal (horizontal/vertical) edges.
-            resized_512 = cv2.resize(cv2_image, (512, 512))
+            resized_512 = cv2.resize(cv2_eval, (512, 512))
             r_gray = cv2.cvtColor(resized_512, cv2.COLOR_BGR2GRAY)
             r_edges = cv2.Canny(r_gray, 60, 180)
             hough_lines = cv2.HoughLinesP(r_edges, 1, np.pi / 180, threshold=70, minLineLength=50, maxLineGap=5)
@@ -247,7 +272,7 @@ class ImageValidator:
                 }
 
             # Check 6: Brightfield Illumination & Darkness Check
-            dark_ratio = float(np.sum(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2HSV)[:, :, 2] < 50) / total_pixels)
+            dark_ratio = float(np.sum(cv2.cvtColor(cv2_eval, cv2.COLOR_BGR2HSV)[:, :, 2] < 50) / eval_pixels)
             if v_mean < 65.0 or dark_ratio > 0.60:
                 return {
                     "is_valid": False,
@@ -258,7 +283,7 @@ class ImageValidator:
                 }
 
             # Check 6b: Central Field Illumination (Brightfield microscope condenser focus vs dark digital screens)
-            c_box = gray[int(h * 0.20):int(h * 0.80), int(w * 0.20):int(w * 0.80)]
+            c_box = gray_eval[int(eh * 0.20):int(eh * 0.80), int(ew * 0.20):int(ew * 0.80)]
             center_dark_ratio = float(np.sum(c_box < 50) / c_box.size)
             if center_dark_ratio > 0.08 and bright_bg < 0.40:
                 return {
@@ -270,8 +295,6 @@ class ImageValidator:
                 }
 
             # Check 6c: Cytological Monolayer Coherence (WBC / RBC / Brightfield Glass balance)
-            # A peripheral blood smear must display either significant leukocyte stain (purple >= 2%),
-            # erythrocyte monolayer density (pink >= 5%), or brightfield glass transmission (bright_bg >= 40%).
             if purple_ratio < 0.020 and pink_ratio < 0.050 and bright_bg < 0.40:
                 return {
                     "is_valid": False,
@@ -287,8 +310,6 @@ class ImageValidator:
                 }
 
             # Check 7: Mandatory Wright-Giemsa Leukocyte Nucleus Verification
-            # Peripheral blood smear leukemia analysis strictly requires leukocyte chromatin (purple/violet stain)
-            # In normal healthy blood, leukocyte density is naturally sparse (~1 WBC per 700 RBCs).
             if purple_ratio < 0.008 or p_count < 1:
                 return {
                     "is_valid": False,
@@ -304,8 +325,6 @@ class ImageValidator:
                 }
 
             # Check 8: Monolithic scene rejection (Skin, walls, solid colors, tissue biopsy sheets)
-            # Genuine blood smears possess both discrete leukocytes (p_count >= 2, purple_ratio >= 0.008)
-            # and erythrocytes (pink_ratio >= 0.05) distributed across the microscopic slide.
             is_genuine_blood_smear = (purple_ratio >= 0.008) and (pink_ratio >= 0.05) and (p_count >= 2)
 
             if not is_genuine_blood_smear and (max_contour_ratio > 0.60 or cell_cov > 0.85):
@@ -349,7 +368,6 @@ class ImageValidator:
                     invalid_prob = float(probs[0].item())
 
             # Combined Verification: Deep Learning probability + Biological Stain & Morphology criteria
-            # Must satisfy BOTH deep learning model confidence and strict biological cytology criteria
             is_valid = (valid_prob >= 0.50) if self.model_loaded else True
             confidence = valid_prob if is_valid else invalid_prob
 

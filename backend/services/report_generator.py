@@ -13,10 +13,11 @@ from reportlab.platypus import (
     TableStyle,
     Image as RLImage,
     HRFlowable,
-    KeepTogether
+    KeepTogether,
+    PageBreak
 )
 
-def _get_rl_image(img_source, width=105, height=105):
+def _get_rl_image(img_source, width=100, height=100):
     """
     Safely load an image for ReportLab from either a local file path,
     a base64 data URI, or a raw base64 string.
@@ -39,68 +40,7 @@ def _get_rl_image(img_source, width=105, height=105):
         print(f"Warning: Failed to load image for PDF report: {e}")
     return None
 
-def generate_pdf_report(analysis_results, output_pdf_path):
-    """
-    Generate a professional academic research report PDF matching the exact
-    research benchmark format with dynamic metrics, dimensions, and artifacts.
-    """
-    if isinstance(analysis_results, list):
-        analysis_results = analysis_results[0] if len(analysis_results) > 0 else {}
-
-    # Target printable area: Letter is 612 x 792 pt.
-    # Margins: 32 left/right, 26 top/bottom -> usable width = 548 pt, usable height = 740 pt.
-    doc = SimpleDocTemplate(
-        output_pdf_path,
-        pagesize=letter,
-        rightMargin=32,
-        leftMargin=32,
-        topMargin=26,
-        bottomMargin=26
-    )
-
-    styles = getSampleStyleSheet()
-
-    # Medical research document typography
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=15,
-        leading=19,
-        textColor=colors.HexColor('#1e40af'),
-        alignment=1,  # Center
-        spaceAfter=3
-    )
-
-    subtitle_style = ParagraphStyle(
-        'DocSubTitle',
-        parent=styles['Normal'],
-        fontSize=9.5,
-        leading=13,
-        textColor=colors.HexColor('#475569'),
-        alignment=1,
-        spaceAfter=6
-    )
-
-    heading2_style = ParagraphStyle(
-        'SectionHeading',
-        parent=styles['Heading2'],
-        fontSize=11,
-        leading=14,
-        textColor=colors.HexColor('#0369a1'),
-        spaceBefore=7,
-        spaceAfter=4,
-        keepWithNext=True
-    )
-
-    normal_style = ParagraphStyle(
-        'NormalText',
-        parent=styles['Normal'],
-        fontSize=8.5,
-        leading=11.5,
-        textColor=colors.HexColor('#1e293b')
-    )
-
-
+def _build_slide_story(analysis_results, styles, title_style, subtitle_style, heading2_style, normal_style):
     story = []
 
     # Title & Subtitle Banner
@@ -142,7 +82,7 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         ('Valid Microscopy Image' if analysis_results.get('is_valid') is not False else 'Invalid Image')
     )
 
-    # General Information Table (4-column layout matching exact format)
+    # General Information Table (4-column layout matching exact research benchmark format)
     info_data = [
         [Paragraph("<b>Report Date:</b>", normal_style),
          Paragraph(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), normal_style),
@@ -227,7 +167,6 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         analysis_results.get('hybrid', {}).get('confidence') or
         cls_res.get('confidence', 0.0)
     )
-    # User requirement: Do NOT multiply with 100 as it is value add
     confidence = float(c_raw or 0.0)
 
     cls_data = [
@@ -273,7 +212,6 @@ def generate_pdf_report(analysis_results, output_pdf_path):
             if k in probs:
                 v = probs[k]
                 p_val = float(v) if isinstance(v, (int, float)) else 0.0
-                # User requirement: Do NOT multiply with 100 as it is value add
                 p_str = f"{p_val:.1f}%"
                 prob_rows.append([
                     Paragraph(f"<b>{k}</b>", normal_style),
@@ -306,9 +244,33 @@ def generate_pdf_report(analysis_results, output_pdf_path):
     img_paths = analysis_results.get('image_paths', {})
     images_dict = analysis_results.get('images', {})
 
-    orig_img = _get_rl_image(img_paths.get('original') or images_dict.get('original'), width=105, height=105)
-    recon_img = _get_rl_image(img_paths.get('reconstructed') or images_dict.get('reconstructed'), width=105, height=105)
-    gradcam_img = _get_rl_image(img_paths.get('gradcam') or images_dict.get('gradcam'), width=105, height=105)
+    orig_source = img_paths.get('original') or images_dict.get('original')
+    recon_source = img_paths.get('reconstructed') or images_dict.get('reconstructed')
+    gradcam_source = img_paths.get('gradcam') or images_dict.get('gradcam')
+
+    session_id = analysis_results.get('session_id') or analysis_results.get('image_information', {}).get('session_id')
+    if session_id:
+        import glob
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        uploads_dir = os.path.join(base_dir, 'uploads')
+        results_dir = os.path.join(base_dir, 'results')
+        if not orig_source or not (isinstance(orig_source, str) and (os.path.exists(orig_source) or orig_source.startswith('data:'))):
+            found_orig = glob.glob(os.path.join(uploads_dir, f"{session_id}_orig.*"))
+            if found_orig:
+                orig_source = found_orig[0]
+        if not recon_source or not (isinstance(recon_source, str) and (os.path.exists(recon_source) or recon_source.startswith('data:'))):
+            found_recon = glob.glob(os.path.join(results_dir, f"{session_id}_recon.*"))
+            if found_recon:
+                recon_source = found_recon[0]
+        if not gradcam_source or not (isinstance(gradcam_source, str) and (os.path.exists(gradcam_source) or gradcam_source.startswith('data:'))):
+            found_cam = glob.glob(os.path.join(results_dir, f"{session_id}_gradcam.*"))
+            if found_cam:
+                gradcam_source = found_cam[0]
+
+    img_w, img_h = 100, 100
+    orig_img = _get_rl_image(orig_source, width=img_w, height=img_h)
+    recon_img = _get_rl_image(recon_source, width=img_w, height=img_h)
+    gradcam_img = _get_rl_image(gradcam_source, width=img_w, height=img_h)
 
     img_cells = []
     if orig_img:
@@ -335,10 +297,82 @@ def generate_pdf_report(analysis_results, output_pdf_path):
         ]))
         sec3_elements.append(img_table)
 
-
-
     # Keep Section 3 together so table headers and images never get separated across pages
     story.append(KeepTogether(sec3_elements))
+    return story
+
+def generate_pdf_report(analysis_results, output_pdf_path):
+    """
+    Generate a professional academic research report PDF matching the exact
+    research benchmark format with dynamic metrics, dimensions, and artifacts.
+    Supports single slide analysis or batch of slides (each on its own 1-page report).
+    """
+    if not analysis_results:
+        items = [{}]
+    elif isinstance(analysis_results, list):
+        items = analysis_results if len(analysis_results) > 0 else [{}]
+    else:
+        items = [analysis_results]
+
+    # Target printable area: Letter is 612 x 792 pt.
+    # Margins: 32 left/right, 26 top/bottom -> usable width = 548 pt, usable height = 740 pt.
+    doc = SimpleDocTemplate(
+        output_pdf_path,
+        pagesize=letter,
+        rightMargin=32,
+        leftMargin=32,
+        topMargin=26,
+        bottomMargin=26
+    )
+
+    styles = getSampleStyleSheet()
+
+    # Medical research document typography
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=15,
+        leading=19,
+        textColor=colors.HexColor('#1e40af'),
+        alignment=1,  # Center
+        spaceAfter=3
+    )
+
+    subtitle_style = ParagraphStyle(
+        'DocSubTitle',
+        parent=styles['Normal'],
+        fontSize=9.5,
+        leading=13,
+        textColor=colors.HexColor('#475569'),
+        alignment=1,
+        spaceAfter=6
+    )
+
+    heading2_style = ParagraphStyle(
+        'SectionHeading',
+        parent=styles['Heading2'],
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor('#0369a1'),
+        spaceBefore=7,
+        spaceAfter=4,
+        keepWithNext=True
+    )
+
+    normal_style = ParagraphStyle(
+        'NormalText',
+        parent=styles['Normal'],
+        fontSize=8.5,
+        leading=11.5,
+        textColor=colors.HexColor('#1e293b')
+    )
+
+    story = []
+    for idx, item in enumerate(items):
+        if idx > 0:
+            story.append(PageBreak())
+        slide_story = _build_slide_story(item, styles, title_style, subtitle_style, heading2_style, normal_style)
+        story.extend(slide_story)
 
     doc.build(story)
     return output_pdf_path

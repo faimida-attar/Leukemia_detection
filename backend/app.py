@@ -1,5 +1,6 @@
 import os
 import io
+import gc
 import cv2
 import time
 import uuid
@@ -355,7 +356,7 @@ def predict_endpoint():
 
     resnet_res = resnet_classifier.predict(pil_img)
     densenet_res = densenet_classifier.predict(pil_img)
-    hybrid_res = hybrid_classifier.predict(pil_img)
+    hybrid_res = hybrid_classifier.predict(pil_img, resnet_res=resnet_res, densenet_res=densenet_res)
 
     return jsonify({
         "resnet50": resnet_res,
@@ -576,7 +577,7 @@ def analyze_full_pipeline():
             st6_start = datetime.datetime.now()
             t0 = time.perf_counter()
             with torch.inference_mode():
-                hybrid_res = hybrid_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename)
+                hybrid_res = hybrid_classifier.predict(pil_img, tensor_img=input_tensor_224, filename=filename, resnet_res=resnet_res, densenet_res=densenet_res)
             pred_res = hybrid_res
             t_hybrid = time.perf_counter() - t0
             st6_end = datetime.datetime.now()
@@ -848,6 +849,8 @@ def analyze_full_pipeline():
             "success": False,
             "error": f"Pipeline analysis error: {str(pipeline_err)}"
         }), 500
+    finally:
+        gc.collect()
 
 
 @app.route('/api/download/<session_id>/<img_type>', methods=['GET'])
@@ -943,7 +946,7 @@ def generate_report_endpoint():
 
     try:
         generate_pdf_report(data, output_pdf_path)
-        return send_file(output_pdf_path, as_attachment=True, download_name=report_filename)
+        return send_file(output_pdf_path, as_attachment=False, mimetype='application/pdf', download_name=report_filename)
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF report: {str(e)}"}), 500
 

@@ -183,25 +183,55 @@ export default function Results({
   const handleDownloadReport = async () => {
     const currentItem = resultsList[activeIndex] || resultsList[0] || analysisData;
     if (!currentItem) return;
+
+    // Pre-open a new browser tab synchronously to prevent popup blockers during asynchronous generation
+    let newTab = null;
+    try {
+      newTab = window.open('about:blank', '_blank');
+    } catch (e) {
+      console.log('Notice: Pre-open tab handled:', e);
+    }
+
     try {
       setIsDownloadingPdf(true);
       setExportError(null);
-      const blob = await generatePdfReportApi(currentItem);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
+
+      // Fetch the generated PDF blob from the backend
+      const rawBlob = await generatePdfReportApi(currentItem);
+      // Ensure the Blob has explicit application/pdf MIME type for valid browser rendering
+      const pdfBlob = new Blob([rawBlob], { type: 'application/pdf' });
+      const blobUrl = window.URL.createObjectURL(pdfBlob);
+
+      // 1. Immediately download the generated PDF to the user's system
       const timestamp = new Date().toISOString().slice(0, 10);
       const rawName = currentItem?.image_information?.filename || currentItem?.selectedFileName || `slide_${activeIndex + 1}`;
       const cleanName = String(rawName).replace(/\.[^/.]+$/, "");
-      link.download = `Leukemia_Research_Report_${cleanName}_${timestamp}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      const downloadFilename = `Leukemia_Research_Report_${cleanName}_${timestamp}.pdf`;
+
+      const downloadLink = document.createElement('a');
+      downloadLink.href = blobUrl;
+      downloadLink.download = downloadFilename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      // 2. Immediately open and display the same PDF in the new browser tab
+      if (newTab && !newTab.closed) {
+        newTab.location.href = blobUrl;
+      } else {
+        window.open(blobUrl, '_blank');
+      }
+
+      // Keep Blob URL active for 2 minutes so the PDF viewer tab loads completely
+      setTimeout(() => {
+        window.URL.revokeObjectURL(blobUrl);
+      }, 120000);
     } catch (err) {
-      console.error('Failed to download PDF report from server, using fallback print:', err);
-      // Fallback: if server-side PDF fails, use window.print
-      window.print();
+      if (newTab && !newTab.closed) {
+        newTab.close();
+      }
+      console.error('Failed to download PDF report:', err);
+      setExportError('Failed to generate PDF report. Please try again.');
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -633,14 +663,14 @@ export default function Results({
                 onClick={handleDownloadReport}
                 disabled={isDownloadingPdf}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer print:hidden"
-                title="Download full research analysis report (.pdf) directly to your laptop"
+                title="Download full research analysis report (.pdf) directly to your system and view in new tab"
               >
                 {isDownloadingPdf ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Download className="w-3.5 h-3.5" />
                 )}
-                <span>{isDownloadingPdf ? 'Generating...' : 'Download Report'}</span>
+                <span>{isDownloadingPdf ? 'Generating PDF...' : 'Download PDF'}</span>
               </button>
               <button
                 onClick={handleExportExcel}
@@ -1413,6 +1443,8 @@ export default function Results({
           </div>
         </div>
       )}
+
+
     </div>
   );
 }

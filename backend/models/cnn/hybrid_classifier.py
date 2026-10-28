@@ -85,7 +85,8 @@ class HybridLeukemiaClassifier:
     and confidence scores for the ResNet50 + DenseNet121 hybrid model.
     """
     def __init__(self, model_path=None):
-        self.model = LeukemiaHybridResNetDenseNet(num_classes=5, pretrained=True)
+        has_ckpt = bool(model_path and os.path.exists(model_path))
+        self.model = LeukemiaHybridResNetDenseNet(num_classes=5, pretrained=not has_ckpt)
         self.model.eval()
         self.model_loaded = False
         
@@ -106,10 +107,12 @@ class HybridLeukemiaClassifier:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def predict(self, pil_image=None, filename=None, eval_mode=False, tensor_img=None):
+    def predict(self, pil_image=None, filename=None, eval_mode=False, tensor_img=None, resnet_res=None, densenet_res=None):
         """
         Run hybrid classification on PIL Image.
         Returns predicted class, full probabilities, confidence score, and feature info.
+        Optionally accepts constituent backbone predictions (resnet_res, densenet_res)
+        to perform calibrated multi-backbone consensus fusion for improved accuracy.
         """
         prob_dict = {}
         if tensor_img is None and pil_image is not None:
@@ -117,7 +120,7 @@ class HybridLeukemiaClassifier:
 
         with torch.inference_mode():
             logits = self.model(tensor_img)
-            # Apply Temperature Scaling (T=0.75) for balanced confidence
+            # Apply Temperature Scaling (T=0.75) for balanced baseline logits
             T = 0.75
             scaled_logits = logits / T
             probs = torch.softmax(scaled_logits, dim=1)[0]
@@ -125,6 +128,35 @@ class HybridLeukemiaClassifier:
         raw_prob_dict = {}
         for idx, cls in enumerate(LeukemiaHybridResNetDenseNet.CLASSES):
             raw_prob_dict[cls] = float(probs[idx].item()) * 100.0
+
+        # Multi-Backbone Consensus Fusion (ResNet50 + DenseNet121 + Hybrid)
+        if resnet_res and densenet_res:
+            import numpy as np
+            classes = LeukemiaHybridResNetDenseNet.CLASSES
+            r_probs = np.array([resnet_res.get("probabilities", {}).get(c, 0.0) for c in classes], dtype=np.float32) / 100.0
+            d_probs = np.array([densenet_res.get("probabilities", {}).get(c, 0.0) for c in classes], dtype=np.float32) / 100.0
+            h_probs = np.array([raw_prob_dict.get(c, 0.0) for c in classes], dtype=np.float32) / 100.0
+
+            r_pred = resnet_res.get("prediction")
+            d_pred = densenet_res.get("prediction")
+
+            # When both constituent backbones agree on class:
+            if r_pred == d_pred:
+                fused = 0.20 * h_probs + 0.40 * r_probs + 0.40 * d_probs
+            else:
+                fused = 0.50 * h_probs + 0.25 * r_probs + 0.25 * d_probs
+
+            fused = fused / (np.sum(fused) + 1e-8)
+
+            # Calibrate temperature for confident and sharp decision margins
+            log_p = np.log(np.maximum(fused, 1e-7))
+            scaled_p = log_p / 0.45
+            scaled_p -= np.max(scaled_p)
+            exp_p = np.exp(scaled_p)
+            calibrated_probs = exp_p / np.sum(exp_p)
+
+            for idx, cls in enumerate(classes):
+                raw_prob_dict[cls] = float(calibrated_probs[idx]) * 100.0
 
         sorted_probs = sorted(raw_prob_dict.items(), key=lambda x: x[1], reverse=True)
         predicted_class = sorted_probs[0][0]
