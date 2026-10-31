@@ -1,4 +1,5 @@
 {
+  "python.defaultInterpreterPath": "C:\\Users\\FAIMIDA\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
   "python.terminal.useEnvFile": true,
   "python.envFile": "${workspaceFolder}/backend/.env"
 }

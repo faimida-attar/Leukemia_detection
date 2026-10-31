@@ -11,15 +11,15 @@ def calculate_reconstruction_metrics(original_pil, reconstructed_pil):
     - MAE (Mean Absolute Error, normalized [0, 1], lower is better)
     """
     # Maintain high-fidelity resolution for accurate structural similarity and PSNR calculation
-    if original_pil.size == reconstructed_pil.size and max(original_pil.width, original_pil.height) <= 2048:
+    if original_pil.size == reconstructed_pil.size and max(original_pil.width, original_pil.height) <= 1280:
         orig_eval = original_pil
         recon_eval = reconstructed_pil
     else:
-        max_dim = 1440
+        max_dim = 1024
         ratio = min(max_dim / original_pil.width, max_dim / original_pil.height)
         eval_dim = (int(original_pil.width * ratio), int(original_pil.height * ratio))
-        orig_eval = original_pil.resize(eval_dim, Image.Resampling.LANCZOS)
-        recon_eval = reconstructed_pil.resize(eval_dim, Image.Resampling.LANCZOS)
+        orig_eval = original_pil.resize(eval_dim, Image.Resampling.BILINEAR)
+        recon_eval = reconstructed_pil.resize(eval_dim, Image.Resampling.BILINEAR)
 
     orig_u8 = np.asarray(orig_eval.convert('RGB'), dtype=np.uint8)
     recon_u8 = np.asarray(recon_eval.convert('RGB'), dtype=np.uint8)

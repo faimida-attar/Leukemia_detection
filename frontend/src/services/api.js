@@ -75,7 +75,7 @@ export const analyzeCompletePipelineApi = async (formData) => {
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Analysis failed' }));
-    throw new Error(err.message || 'Pipeline analysis failed');
+    throw new Error(err.error || err.message || 'Pipeline analysis failed');
   }
   return response.json();
 };

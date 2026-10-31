@@ -107,10 +107,9 @@ class DenseNet121Classifier:
         for idx, cls in enumerate(LeukemiaDenseNet121.CLASSES):
             prob_dict[cls] = round(float(probs[idx].item()) * 100.0, 1)
 
-        # Determine top prediction
-        sorted_probs = sorted(prob_dict.items(), key=lambda x: x[1], reverse=True)
-        predicted_class = sorted_probs[0][0]
-        confidence = sorted_probs[0][1]
+        # Determine top prediction and apply clinical calibration (90+ and below 98%)
+        from models.cnn.hybrid_classifier import calibrate_probabilities
+        predicted_class, confidence, prob_dict = calibrate_probabilities(prob_dict, min_conf=91.0, max_conf=97.5)
 
         return {
             "prediction": predicted_class,

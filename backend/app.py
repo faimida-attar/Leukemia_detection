@@ -106,41 +106,46 @@ def enhance_reconstructed_image(recon_pil, target_w, target_h, orig_pil=None):
     4. Adaptive unsharp masking scaled to resolution for crystal-clear, non-blurry output.
     """
     if (recon_pil.width, recon_pil.height) != (target_w, target_h):
-        recon_resized = recon_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        recon_resized = recon_pil.resize((target_w, target_h), Image.Resampling.BILINEAR)
     else:
         recon_resized = recon_pil
 
     if orig_pil is not None:
         if (orig_pil.width, orig_pil.height) != (target_w, target_h):
-            orig_matched = orig_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            orig_matched = orig_pil.resize((target_w, target_h), Image.Resampling.BILINEAR)
         else:
             orig_matched = orig_pil
 
-        orig_np = np.array(orig_matched, dtype=np.float32)
-        recon_np = np.array(recon_resized, dtype=np.float32)
+        # Fast SIMD array conversion
+        orig_u8 = np.asarray(orig_matched, dtype=np.uint8)
+        recon_u8 = np.asarray(recon_resized, dtype=np.uint8)
 
         # Dynamic optical kernel directly proportional to the GAN downsampling scale:
         max_dim = max(target_w, target_h)
-        scale = max(1.5, max_dim / 256.0)
-        k = int(2 * round(2.5 * scale) + 1)
+        scale = min(4.0, max(1.5, max_dim / 512.0))
+        k = int(2 * round(2.0 * scale) + 1)
         if k % 2 == 0:
             k += 1
 
-        orig_blur = cv2.GaussianBlur(orig_np, (k, k), scale)
-        high_pass = orig_np - orig_blur  # Cellular edges, membrane rings, and chromatin details
+        orig_blur = cv2.GaussianBlur(orig_u8, (k, k), scale)
+        high_pass = cv2.subtract(orig_u8, orig_blur)
 
-        # High-frequency edge texture fusion onto denoised GAN output (0.95x restoration)
-        fused_np = recon_np + 0.95 * high_pass
-        fused_np = np.clip(fused_np, 0, 255)
+        # High-frequency edge texture fusion onto denoised GAN output
+        fused_u8 = cv2.addWeighted(recon_u8, 1.0, high_pass, 0.95, 0)
 
-        # Staining & Contrast Alignment: match color channels and contrast to original slide (vectorized)
-        m_orig = orig_np.mean(axis=(0, 1), keepdims=True)
-        s_orig = orig_np.std(axis=(0, 1), keepdims=True)
-        m_fused = fused_np.mean(axis=(0, 1), keepdims=True)
-        s_fused = fused_np.std(axis=(0, 1), keepdims=True)
-        fused_np = (fused_np - m_fused) / (s_fused + 1e-5) * s_orig + m_orig
-        fused_np = np.clip(fused_np, 0, 255).astype(np.uint8)
-        recon_base = Image.fromarray(fused_np)
+        # Staining & Contrast Alignment: match color channels and contrast using fast cv2.meanStdDev
+        m_orig, s_orig = cv2.meanStdDev(orig_u8)
+        m_fused, s_fused = cv2.meanStdDev(fused_u8)
+
+        m_orig = m_orig.reshape(1, 1, 3)
+        s_orig = s_orig.reshape(1, 1, 3)
+        m_fused = m_fused.reshape(1, 1, 3)
+        s_fused = s_fused.reshape(1, 1, 3)
+
+        fused_f = fused_u8.astype(np.float32)
+        aligned_f = (fused_f - m_fused) / (s_fused + 1e-5) * s_orig + m_orig
+        aligned_u8 = np.clip(aligned_f, 0, 255).astype(np.uint8)
+        recon_base = Image.fromarray(aligned_u8)
 
         # Light cytological unsharp crisping
         sharp_recon = recon_base.filter(ImageFilter.UnsharpMask(radius=1.5, percent=125, threshold=1))
@@ -449,7 +454,15 @@ def analyze_full_pipeline():
             orig_mime = "image/jpeg"
             orig_format_str = "JPEG"
 
-        orig_b64 = f"data:{orig_mime};base64,{base64.b64encode(orig_raw_bytes).decode('utf-8')}"
+        # Generate lightweight high-quality preview for ultra-responsive UI display
+        if len(orig_raw_bytes) > 2 * 1024 * 1024 and max(orig_w, orig_h) > 1280:
+            orig_thumb = pil_img.copy()
+            orig_thumb.thumbnail((1280, 1280), Image.Resampling.BILINEAR)
+            thumb_io = io.BytesIO()
+            orig_thumb.save(thumb_io, format="JPEG", quality=88)
+            orig_b64 = f"data:image/jpeg;base64,{base64.b64encode(thumb_io.getvalue()).decode('utf-8')}"
+        else:
+            orig_b64 = f"data:{orig_mime};base64,{base64.b64encode(orig_raw_bytes).decode('utf-8')}"
 
         t0_pipeline = time.perf_counter()
         st1_start = datetime.datetime.now()
@@ -540,14 +553,23 @@ def analyze_full_pipeline():
         # Save reconstructed image once and preserve exact saved output bytes
         recon_filename = f"{session_id}_recon.png"
         recon_path = os.path.join(RESULTS_DIR, recon_filename)
-        recon_pil.save(recon_path, format="PNG")
+        recon_pil.save(recon_path, format="PNG", compress_level=1)
         recon_file_size_bytes = os.path.getsize(recon_path)
         recon_file_size_formatted = format_file_size(recon_file_size_bytes)
 
         # Read exact saved output bytes from disk to prevent duplicate encoding discrepancies
         with open(recon_path, "rb") as f_recon:
             recon_raw_bytes = f_recon.read()
-        recon_b64 = f"data:image/png;base64,{base64.b64encode(recon_raw_bytes).decode('utf-8')}"
+
+        # High-performance web-preview base64 string for ultra-responsive webapp
+        if max(recon_pil.width, recon_pil.height) > 1280:
+            preview_thumb = recon_pil.copy()
+            preview_thumb.thumbnail((1280, 1280), Image.Resampling.BILINEAR)
+            thumb_io = io.BytesIO()
+            preview_thumb.save(thumb_io, format="JPEG", quality=88)
+            recon_b64 = f"data:image/jpeg;base64,{base64.b64encode(thumb_io.getvalue()).decode('utf-8')}"
+        else:
+            recon_b64 = f"data:image/png;base64,{base64.b64encode(recon_raw_bytes).decode('utf-8')}"
 
         metrics = calculate_reconstruction_metrics(pil_img, recon_pil)
         t_enh_met = time.perf_counter() - t0
